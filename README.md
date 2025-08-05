@@ -1,8 +1,16 @@
-# VLESS Shop Bot | Telegram-бот для продажи VPN
+<div align="center" markdown>
+      <h1>VLESS Shop Bot | Telegram-бот для продажи VPN</h1>
+<p align="center">
+    <a href="https://github.com/evansvl/vless-shopbot/edit/main/README.md#%EF%B8%8F-%D1%83%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B0-%D0%BF%D0%BE%D0%B4-%D0%BA%D0%BB%D1%8E%D1%87">Установка</a> •
+    <a href="https://github.com/evansvl/vless-shopbot/edit/main/README.md#-%D0%B1%D0%B0%D0%B3%D0%B8-%D0%B8-%D0%BF%D1%80%D0%B5%D0%B4%D0%BB%D0%BE%D0%B6%D0%B5%D0%BD%D0%B8%D1%8F">Баги и предложения</a> •
+    <a href="https://github.com/evansvl/vless-shopbot/edit/main/README.md#%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83">Поддержать проект</a>
+</p>
 
-![Версия](https://img.shields.io/badge/version-2.0.2-blue)
-![Язык](https://img.shields.io/badge/language-Python-green)
-![Платформа](https://img.shields.io/badge/platform-Docker-blueviolet)
+![GitHub License](https://img.shields.io/github/license/evansvl/vless-shopbot)
+![GitHub Release](https://img.shields.io/github/v/release/evansvl/vless-shopbot)
+![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/evansvl/vless-shopbot)
+
+</div>
 
 **VLESS Shop Bot** — это комплексное решение для автоматизированной продажи VLESS-конфигураций через Telegram. Бот глубоко интегрирован с панелью управления **3x-ui** и предоставляет мощную веб-панель для полного контроля над вашим бизнесом.
 
@@ -143,9 +151,9 @@ git pull
 docker-compose down && docker-compose up -d --build
 ```
 
-## 🙌 Хотите помочь проекту?
+## 🙌 Баги и предложения
 
-Я всегда рад помощи в развитии проекта! Создавайте "Issue" с предложениями и ошибками или присылайте Pull Request'ы.
+Если вы нашли баг, или у вас есть предложение, то создавайте "Issue" или присылайте Pull Request'ы.
 
 ## Поддержать разработку
 
