@@ -5,9 +5,8 @@
 <a href="https://github.com/evansvl/vless-shopbot">evansvl/vless-shopbot</a>
 </p>
 
-![GitHub License](https://img.shields.io/github/license/evansvl/vless-shopbot)
-![GitHub Release](https://img.shields.io/github/v/release/evansvl/vless-shopbot)
-![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/evansvl/vless-shopbot)
+![GitHub License]![License](https://img.shields.io/github/license/r0re/3xShop-bot)
+![GitHub Release](https://img.shields.io/github/v/release/r0re/3xShop-bot)
 
 </div>
 
