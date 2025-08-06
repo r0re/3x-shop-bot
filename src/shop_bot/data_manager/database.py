@@ -86,12 +86,17 @@ def initialize_db():
             admin_password = generate_random_string(16)
             flask_secret = secrets.token_hex(32)
             
-            # Сохраняем учетные данные в файл для вывода после установки
+            # Сохраняем учетные данные в файл для вывода после установки (только для новых установок)
             credentials_file = PROJECT_ROOT / "admin_credentials.txt"
-            with open(credentials_file, 'w') as f:
-                f.write(f"ADMIN_LOGIN={admin_login}\n")
-                f.write(f"ADMIN_PASSWORD={admin_password}\n")
-                f.write(f"FLASK_SECRET_KEY={flask_secret}\n")
+            if not credentials_file.exists():  # Создаем файл только если его еще нет
+                try:
+                    with open(credentials_file, 'w') as f:
+                        f.write(f"ADMIN_LOGIN={admin_login}\n")
+                        f.write(f"ADMIN_PASSWORD={admin_password}\n")
+                        f.write(f"FLASK_SECRET_KEY={flask_secret}\n")
+                    logging.info("Admin credentials file created.")
+                except Exception as e:
+                    logging.error(f"Failed to create credentials file: {e}")
             
             default_settings = {
                 "panel_login": admin_login,
@@ -118,10 +123,24 @@ def initialize_db():
                 "domain": None
             }
             _run_migrations(conn)
-            for key, value in default_settings.items():
-                cursor.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES (?, ?)", (key, value))
+            
+            # Проверяем, нужно ли инициализировать настройки
+            cursor.execute("SELECT COUNT(*) FROM bot_settings WHERE key = 'panel_login'")
+            login_exists = cursor.fetchone()[0] > 0
+            
+            if not login_exists:
+                # База новая, вставляем все настройки включая случайные учетные данные
+                for key, value in default_settings.items():
+                    cursor.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES (?, ?)", (key, value))
+                logging.info("Database initialized with secure random credentials.")
+            else:
+                # База существует, вставляем только отсутствующие настройки (кроме учетных данных)
+                for key, value in default_settings.items():
+                    if key not in ['panel_login', 'panel_password']:  # Не перезаписываем существующие учетные данные
+                        cursor.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES (?, ?)", (key, value))
+                logging.info("Database updated with missing settings.")
+            
             conn.commit()
-            logging.info("Database initialized successfully.")
     except sqlite3.Error as e:
         logging.error(f"Database error on initialization: {e}")
 
