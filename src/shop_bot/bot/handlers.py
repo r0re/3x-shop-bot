@@ -7,12 +7,13 @@ import aiohttp
 import hashlib
 import json
 import base64
+from urllib.parse import urlencode
 from hmac import compare_digest
 from functools import wraps
 from yookassa import Payment
 from io import BytesIO
 from datetime import datetime, timedelta
-from aiosend import CryptoPay
+from aiosend import CryptoPay, TESTNET
 from decimal import Decimal, ROUND_HALF_UP
 
 from aiogram import Bot, Router, F, types, html
@@ -30,7 +31,7 @@ from shop_bot.data_manager.database import (
     register_user_if_not_exists, get_next_key_number, get_key_by_id,
     update_key_info, set_trial_used, set_terms_agreed, get_setting, get_all_hosts,
     get_plans_for_host, get_plan_by_id, log_transaction, get_referral_count,
-    add_to_referral_balance
+    add_to_referral_balance, create_pending_transaction, 
 )
 from shop_bot.config import (
     get_profile_text, get_vpn_active_text, VPN_INACTIVE_TEXT, VPN_NO_DATA_TEXT,
@@ -134,9 +135,20 @@ def get_user_router() -> Router:
             await show_main_menu(message)
             return
 
+        is_subscription_forced = get_setting("force_subscription") == "true"
+        
+        show_welcome_screen = (is_subscription_forced and channel_url) or (terms_url and privacy_url)
+
+        if not show_welcome_screen:
+            set_terms_agreed(user_id)
+            await show_main_menu(message)
+            return
+
         welcome_parts = ["<b>Добро пожаловать!</b>\n"]
-        if channel_url:
+        
+        if is_subscription_forced and channel_url:
             welcome_parts.append("Для доступа ко всем функциям, пожалуйста, подпишитесь на наш канал.")
+        
         if terms_url and privacy_url:
             welcome_parts.append(
                 "Также необходимо ознакомиться и принять наши "
@@ -149,7 +161,7 @@ def get_user_router() -> Router:
         
         await message.answer(
             final_text,
-            reply_markup=keyboards.create_welcome_keyboard(channel_url),
+            reply_markup=keyboards.create_welcome_keyboard(channel_url if is_subscription_forced else None),
             disable_web_page_preview=True
         )
         await state.set_state(Onboarding.waiting_for_subscription_and_agreement)
@@ -245,7 +257,7 @@ def get_user_router() -> Router:
 
         text = (
             "🤝 <b>Реферальная программа</b>\n\n"
-            "Приглашайте друзей и получайте вознаграждение с **каждой** их покупки!\n\n"
+            "Приглашайте друзей и получайте вознаграждение с <b>каждой</b> их покупки!\n\n"
             f"<b>Ваша реферальная ссылка:</b>\n<code>{referral_link}</code>\n\n"
             f"<b>Приглашено пользователей:</b> {referral_count}\n"
             f"<b>Ваш баланс:</b> {balance:.2f} RUB"
@@ -653,8 +665,26 @@ def get_user_router() -> Router:
         await callback.answer("Создаю ссылку на оплату...")
         
         data = await state.get_data()
+        user_data = get_user(callback.from_user.id)
         
-        price_rub = data.get('final_price')
+        plan_id = data.get('plan_id')
+        plan = get_plan_by_id(plan_id)
+
+        if not plan:
+            await callback.message.answer("Произошла ошибка при выборе тарифа.")
+            await state.clear()
+            return
+
+        base_price = Decimal(str(plan['price']))
+        price_rub = base_price
+
+        if user_data.get('referred_by') and user_data.get('total_spent', 0) == 0:
+            discount_percentage_str = get_setting("referral_discount") or "0"
+            discount_percentage = Decimal(discount_percentage_str)
+            if discount_percentage > 0:
+                discount_amount = (base_price * discount_percentage / 100).quantize(Decimal("0.01"))
+                price_rub = base_price - discount_amount
+
         plan_id = data.get('plan_id')
         customer_email = data.get('customer_email')
         host_name = data.get('host_name')
@@ -672,27 +702,29 @@ def get_user_router() -> Router:
 
         months = plan['months']
         user_id = callback.from_user.id
-        
-        receipt = None
-        if customer_email and is_valid_email(customer_email):
-            receipt = {
-                "customer": {"email": customer_email},
-                "items": [{
-                    "description": f"Подписка на {months} мес.",
-                    "quantity": "1.00",
-                    "amount": {"value": f"{price_rub:.2f}", "currency": "RUB"},
-                    "vat_code": "1"
-                }]
-            }
 
         try:
+            price_str_for_api = f"{price_rub:.2f}"
+            price_float_for_metadata = float(price_rub)
+
+            receipt = None
+            if customer_email and is_valid_email(customer_email):
+                receipt = {
+                    "customer": {"email": customer_email},
+                    "items": [{
+                        "description": f"Подписка на {months} мес.",
+                        "quantity": "1.00",
+                        "amount": {"value": price_str_for_api, "currency": "RUB"},
+                        "vat_code": "1"
+                    }]
+                }
             payment_payload = {
-                "amount": {"value": f"{price_rub:.2f}", "currency": "RUB"},
+                "amount": {"value": price_str_for_api, "currency": "RUB"},
                 "confirmation": {"type": "redirect", "return_url": f"https://t.me/{TELEGRAM_BOT_USERNAME}"},
                 "capture": True,
                 "description": f"Подписка на {months} мес.",
                 "metadata": {
-                    "user_id": user_id, "months": months, "price": price_rub, 
+                    "user_id": user_id, "months": months, "price": price_float_for_metadata, 
                     "action": action, "key_id": key_id, "host_name": host_name,
                     "plan_id": plan_id, "customer_email": customer_email,
                     "payment_method": "YooKassa"
@@ -719,6 +751,7 @@ def get_user_router() -> Router:
         await callback.answer("Создаю счет в Crypto Pay...")
         
         data = await state.get_data()
+        user_data = get_user(callback.from_user.id)
         
         plan_id = data.get('plan_id')
         user_id = data.get('user_id', callback.from_user.id)
@@ -740,8 +773,24 @@ def get_user_router() -> Router:
             await callback.message.edit_text("❌ Произошла ошибка при выборе тарифа.")
             await state.clear()
             return
-            
-        price_rub = Decimal(str(data.get('final_price')))
+        
+        plan_id = data.get('plan_id')
+        plan = get_plan_by_id(plan_id)
+
+        if not plan:
+            await callback.message.answer("Произошла ошибка при выборе тарифа.")
+            await state.clear()
+            return
+
+        base_price = Decimal(str(plan['price']))
+        price_rub = base_price
+
+        if user_data.get('referred_by') and user_data.get('total_spent', 0) == 0:
+            discount_percentage_str = get_setting("referral_discount") or "0"
+            discount_percentage = Decimal(discount_percentage_str)
+            if discount_percentage > 0:
+                discount_amount = (base_price * discount_percentage / 100).quantize(Decimal("0.01"))
+                price_rub = base_price - discount_amount
         months = plan['months']
         
         try:
@@ -792,17 +841,37 @@ def get_user_router() -> Router:
         
         data = await state.get_data()
         plan = get_plan_by_id(data.get('plan_id'))
+        user_data = get_user(callback.from_user.id)
         
         if not plan:
             await callback.message.edit_text("❌ Произошла ошибка при выборе тарифа.")
             await state.clear()
             return
-            
-        price_rub = data.get('final_price')
+
+        plan_id = data.get('plan_id')
+        plan = get_plan_by_id(plan_id)
+
+        if not plan:
+            await callback.message.answer("Произошла ошибка при выборе тарифа.")
+            await state.clear()
+            return
+
+        base_price = Decimal(str(plan['price']))
+        price_rub_decimal = base_price
+
+        if user_data.get('referred_by') and user_data.get('total_spent', 0) == 0:
+            discount_percentage_str = get_setting("referral_discount") or "0"
+            discount_percentage = Decimal(discount_percentage_str)
+            if discount_percentage > 0:
+                discount_amount = (base_price * discount_percentage / 100).quantize(Decimal("0.01"))
+                price_rub_decimal = base_price - discount_amount
+        months = plan['months']
         
+        final_price_float = float(price_rub_decimal)
+
         pay_url = await _create_heleket_payment_request(
             user_id=callback.from_user.id,
-            price=price_rub,
+            price=final_price_float,
             months=plan['months'],
             host_name=data.get('host_name'),
             state_data=data
@@ -816,6 +885,70 @@ def get_user_router() -> Router:
             await state.clear()
         else:
             await callback.message.edit_text("❌ Не удалось создать счет Heleket. Попробуйте другой способ оплаты.")
+
+        @user_router.callback_query(PaymentProcess.waiting_for_payment_method, F.data == "pay_tonconnect")
+        async def create_ton_invoice_handler(callback: types.CallbackQuery, state: FSMContext):
+            await callback.answer("Создаю счет в TON...")
+            
+            data = await state.get_data()
+            user_id = callback.from_user.id
+            wallet_address = get_setting("ton_wallet_address")
+            plan = get_plan_by_id(data.get('plan_id'))
+            
+            if not wallet_address or not plan:
+                await callback.message.edit_text("❌ Оплата через TON временно недоступна.")
+                await state.clear()
+                return
+                
+            price_rub = Decimal(str(data.get('final_price', plan['price'])))
+
+            usdt_rub_rate = await get_usdt_rub_rate()
+            ton_usdt_rate = await get_ton_usdt_rate()
+
+            if not usdt_rub_rate or not ton_usdt_rate:
+                await callback.message.edit_text("❌ Не удалось получить курс TON. Попробуйте позже.")
+                await state.clear()
+                return
+
+            price_ton = (price_rub / usdt_rub_rate / ton_usdt_rate).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+            
+            payment_id = str(uuid.uuid4())
+            metadata = {
+                "user_id": user_id, "months": plan['months'], "price": float(price_rub),
+                "action": data.get('action'), "key_id": data.get('key_id'),
+                "host_name": data.get('host_name'), "plan_id": data.get('plan_id'),
+                "customer_email": data.get('customer_email'), "payment_method": "TON"
+            }
+            create_pending_transaction(payment_id, user_id, float(price_rub), metadata)
+
+            amount_nanoton = int(price_ton * 1_000_000_000)
+            
+            link_params = {
+                "to": wallet_address,
+                "amount": amount_nanoton,
+                "text": payment_id
+            }
+            pay_link = f"ton://transfer/{wallet_address}?" + urlencode(link_params)
+            
+            qr_img = qrcode.make(pay_link)
+            bio = BytesIO()
+            qr_img.save(bio, "PNG")
+            qr_file = BufferedInputFile(bio.getvalue(), "ton_qr.png")
+
+            await callback.message.delete()
+            await callback.message.answer_photo(
+                photo=qr_file,
+                caption=(
+                    f"💎 **Оплата через TON Connect**\n\n"
+                    f"Сумма к оплате: `{price_ton}` **TON**\n\n"
+                    f"Отсканируйте QR-код вашим кошельком (например, Tonkeeper) "
+                    f"или нажмите на [эту прямую ссылку]({pay_link}).\n\n"
+                    f"**ВАЖНО:** Не изменяйте комментарий к транзакции (`{payment_id}`), по нему мы найдем ваш платеж!\n\n"
+                    f"После оплаты подписка будет выдана автоматически."
+                ),
+                parse_mode="Markdown"
+            )
+            await state.clear()
 
         @user_router.message(F.text)
         @registration_required
@@ -886,7 +1019,7 @@ async def _create_heleket_payment_request(user_id: int, price: float, months: in
     order_id = str(uuid.uuid4())
     
     metadata = {
-        "user_id": user_id, "months": months, "price": price,
+        "user_id": user_id, "months": months, "price": float(price),
         "action": state_data.get('action'), "key_id": state_data.get('key_id'),
         "host_name": host_name, "plan_id": state_data.get('plan_id'),
         "customer_email": state_data.get('customer_email'), "payment_method": "Heleket"
@@ -950,6 +1083,25 @@ async def get_usdt_rub_rate() -> Decimal | None:
                 return None
     except Exception as e:
         logger.error(f"Error getting USDT RUB Binance rate: {e}", exc_info=True)
+        return None
+    
+async def get_ton_usdt_rate() -> Decimal | None:
+    url = "https://api.binance.com/api/v3/ticker/price"
+    params = {"symbol": "TONUSDT"}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as response:
+                response.raise_for_status()
+                data = await response.json()
+                price_str = data.get('price')
+                if price_str:
+                    logger.info(f"Got TON USDT: {price_str}")
+                    return Decimal(price_str)
+                logger.error("Can't find 'price' in Binance response.")
+                return None
+    except Exception as e:
+        logger.error(f"Error getting TON USDT Binance rate: {e}", exc_info=True)
         return None
 
 async def process_successful_payment(bot: Bot, metadata: dict):

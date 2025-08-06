@@ -79,6 +79,8 @@ def create_payment_method_keyboard(payment_methods: dict, action: str, key_id: i
         builder.button(text="💎 Криптовалюта", callback_data="pay_heleket")
     if payment_methods and payment_methods.get("cryptobot"):
         builder.button(text="🤖 CryptoBot", callback_data="pay_cryptobot")
+    #if payment_methods and payment_methods.get("tonconnect"):
+    #    builder.button(text="🪙 TON Connect", callback_data="pay_tonconnect")
 
     builder.button(text="⬅️ Назад", callback_data="back_to_email_prompt")
     builder.adjust(1)

@@ -37,6 +37,12 @@ if ! sudo systemctl is-active --quiet docker; then
     sudo systemctl start docker
     sudo systemctl enable docker
 fi
+
+if ! sudo systemctl is-active --quiet nginx; then
+    echo -e "${YELLOW}Сервис Nginx не запущен. Запускаем и добавляем в автозагрузку...${NC}"
+    sudo systemctl start nginx
+    sudo systemctl enable nginx
+fi
 echo -e "${GREEN}✔ Все системные зависимости установлены.${NC}"
 
 REPO_URL="https://github.com/evansvl/vless-shopbot.git"

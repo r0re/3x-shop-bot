@@ -44,7 +44,7 @@ def get_connection_string(inbound: Inbound, user_uuid: str, host_url: str, remar
     connection_string = (
         f"vless://{user_uuid}@{parsed_url.hostname}:{port}"
         f"?type=tcp&security=reality&pbk={public_key}&fp={fp}&sni={server_names[0]}"
-        f"&sid={short_id}&spx=%2F#{remark}"
+        f"&sid={short_id}&spx=%2F&flow=xtls-rprx-vision#{remark}"
     )
     return connection_string
 
@@ -77,7 +77,7 @@ def update_or_create_client_on_panel(api: Api, inbound_id: int, email: str, days
 
         if client_index != -1:
             inbound_to_modify.settings.clients[client_index].expiry_time = new_expiry_ms
-            inbound_to_modify.settings.clients[client_index].total_gb = 0 # Reset traffic
+            inbound_to_modify.settings.clients[client_index].total_gb = 0
             inbound_to_modify.settings.clients[client_index].enable = True
             
             client_uuid = inbound_to_modify.settings.clients[client_index].id
@@ -88,6 +88,7 @@ def update_or_create_client_on_panel(api: Api, inbound_id: int, email: str, days
                 email=email,
                 enable=True,
                 expiry_time=new_expiry_ms,
+                flow="xtls-rprx-vision",
                 total_gb=0
             )
             inbound_to_modify.settings.clients.append(new_client)

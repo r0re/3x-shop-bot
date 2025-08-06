@@ -2,6 +2,7 @@ import sqlite3
 from datetime import datetime
 import logging
 from pathlib import Path
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +38,15 @@ def initialize_db():
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS transactions (
                     transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    payment_id TEXT UNIQUE NOT NULL,
                     user_id INTEGER NOT NULL,
-                    username TEXT,
-                    email TEXT,
-                    host_name TEXT NOT NULL,
-                    plan_name TEXT NOT NULL,
-                    months INTEGER NOT NULL,
-                    amount_spent REAL NOT NULL,
-                    payment_method TEXT NOT NULL,
-                    transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id)
+                    status TEXT NOT NULL,
+                    amount_rub REAL NOT NULL,
+                    amount_currency REAL,
+                    currency_name TEXT,
+                    payment_method TEXT,
+                    metadata TEXT,
+                    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             cursor.execute('''
@@ -108,6 +108,7 @@ def initialize_db():
                 "support_user": None,
                 "support_text": None,
                 "channel_url": None,
+                "force_subscription": "true",
                 "receipt_email": "example@example.com",
                 "telegram_bot_token": None,
                 "telegram_bot_username": None,
@@ -120,7 +121,9 @@ def initialize_db():
                 "cryptobot_token": None,
                 "heleket_merchant_id": None,
                 "heleket_api_key": None,
-                "domain": None
+                "domain": None,
+                "ton_wallet_address": None,
+                "tonapi_key": None,
             }
             _run_migrations(conn)
             
@@ -144,27 +147,84 @@ def initialize_db():
     except sqlite3.Error as e:
         logging.error(f"Database error on initialization: {e}")
 
-def _run_migrations(conn: sqlite3.Connection):
-    cursor = conn.cursor()
-    
-    cursor.execute("PRAGMA table_info(users)")
-    columns = [row[1] for row in cursor.fetchall()]
-    
-    if 'referred_by' not in columns:
-        try:
+def run_migration():
+    if not DB_FILE.exists():
+        logging.error("Файл базы данных users.db не найден. Нечего мигрировать.")
+        return
+
+    logging.info(f"Начинаю миграцию базы данных: {DB_FILE}")
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+
+        logging.info("The migration of the table 'users' ...")
+        
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'referred_by' not in columns:
             cursor.execute("ALTER TABLE users ADD COLUMN referred_by INTEGER")
-            logger.info("Migration successful: Added 'referred_by' column to 'users' table.")
-        except sqlite3.Error as e:
-            logger.error(f"Migration failed for 'referred_by' column: {e}")
-
-    if 'referral_balance' not in columns:
-        try:
+            logging.info("-> The column 'referred_by' is successfully added.")
+        else:
+            logging.info("-> The column 'referred_by' already exists.")
+            
+        if 'referral_balance' not in columns:
             cursor.execute("ALTER TABLE users ADD COLUMN referral_balance REAL DEFAULT 0")
-            logger.info("Migration successful: Added 'referral_balance' column to 'users' table.")
-        except sqlite3.Error as e:
-            logger.error(f"Migration failed for 'referral_balance' column: {e}")
+            logging.info("-> The column 'referred_by' already exists.")
+        else:
+            logging.info("-> The column 'referred_by' already exists.")
+        
+        logging.info("-> The column 'referred_by' already exists.")
 
-    logger.info("Database migrations finished.")
+
+        logging.info("The migration of the table 'Transactions' ...")
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='transactions'")
+        table_exists = cursor.fetchone()
+
+        if table_exists:
+            cursor.execute("PRAGMA table_info(transactions)")
+            trans_columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'payment_id' in trans_columns and 'status' in trans_columns:
+                logging.info("The 'Transactions' table already has a new structure. Migration is not required.")
+            else:
+                backup_name = f"transactions_backup_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                logging.warning(f"The old structure of the TRANSACTIONS table was discovered. I rename in '{backup_name}' ...")
+                cursor.execute(f"ALTER TABLE transactions RENAME TO {backup_name}")
+                
+                logging.info("I create a new table 'Transactions' with the correct structure ...")
+                create_new_transactions_table(cursor)
+                logging.info("The new table 'Transactions' has been successfully created. The old data is saved.")
+        else:
+            logging.info("TRANSACTIONS table was not found. I create a new one ...")
+            create_new_transactions_table(cursor)
+            logging.info("The new table 'Transactions' has been successfully created.")
+
+        conn.commit()
+        conn.close()
+        
+        logging.info("--- The database is successfully completed! ---")
+
+    except sqlite3.Error as e:
+        logging.error(f"An error occurred during migration: {e}")
+
+def create_new_transactions_table(cursor: sqlite3.Cursor):
+    cursor.execute('''
+        CREATE TABLE transactions (
+            transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payment_id TEXT UNIQUE NOT NULL,
+            user_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            amount_rub REAL NOT NULL,
+            amount_currency REAL,
+            currency_name TEXT,
+            payment_method TEXT,
+            metadata TEXT,
+            created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
 
 def create_host(name: str, url: str, user: str, passwd: str, inbound: int):
     try:
@@ -391,6 +451,44 @@ def get_total_spent_sum() -> float:
     except sqlite3.Error as e:
         logging.error(f"Failed to get total spent sum: {e}")
         return 0.0
+
+def create_pending_transaction(payment_id: str, user_id: int, amount_rub: float, metadata: dict) -> int:
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO transactions (payment_id, user_id, status, amount_rub, metadata) VALUES (?, ?, ?, ?, ?)",
+                (payment_id, user_id, 'pending', amount_rub, json.dumps(metadata))
+            )
+            conn.commit()
+            return cursor.lastrowid
+    except sqlite3.Error as e:
+        logging.error(f"Failed to create pending transaction: {e}")
+        return 0
+
+def find_and_complete_ton_transaction(payment_id: str, amount_ton: float) -> dict | None:
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT * FROM transactions WHERE payment_id = ? AND status = 'pending'", (payment_id,))
+            transaction = cursor.fetchone()
+            if not transaction:
+                logger.warning(f"TON Webhook: Received payment for unknown or completed payment_id: {payment_id}")
+                return None
+            
+            
+            cursor.execute(
+                "UPDATE transactions SET status = 'paid', amount_currency = ?, currency_name = 'TON', payment_method = 'TON' WHERE payment_id = ?",
+                (amount_ton, payment_id)
+            )
+            conn.commit()
+            
+            return json.loads(transaction['metadata'])
+    except sqlite3.Error as e:
+        logging.error(f"Failed to complete TON transaction {payment_id}: {e}")
+        return None
 
 def log_transaction(user_id: int, username: str, email: str, host_name: str, plan_name: str, months: int, amount: float, method: str):
     try:

@@ -84,6 +84,10 @@ class BotController:
             heleket_api_key = database.get_setting("heleket_api_key")
             heleket_enabled = bool(heleket_api_key and heleket_shop_id)
             
+            ton_wallet_address = database.get_setting("ton_wallet_address")
+            tonapi_key = database.get_setting("tonapi_key")
+            tonconnect_enabled = bool(ton_wallet_address and tonapi_key)
+
             if yookassa_enabled:
                 Configuration.account_id = yookassa_shop_id
                 Configuration.secret_key = yookassa_secret_key
@@ -91,7 +95,8 @@ class BotController:
             handlers.PAYMENT_METHODS = {
                 "yookassa": yookassa_enabled,
                 "heleket": heleket_enabled,
-                "cryptobot": cryptobot_enabled
+                "cryptobot": cryptobot_enabled,
+                "tonconnect": tonconnect_enabled
             }
             handlers.TELEGRAM_BOT_USERNAME = bot_username
             handlers.ADMIN_ID = admin_id
