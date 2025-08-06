@@ -134,13 +134,7 @@ server {
     ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';
 
     location / {
-        try_files $uri $uri/ @backend;
-    }
-    
-    location @backend {
         proxy_pass http://127.0.0.1:1488;
-        
-        # Standard headers for proxying
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -151,6 +145,12 @@ EOF
 
 if [ ! -f "$NGINX_ENABLED_FILE" ]; then
     sudo ln -s $NGINX_CONF_FILE $NGINX_ENABLED_FILE
+fi
+
+# Удаляем дефолтный сайт nginx
+if [ -f "/etc/nginx/sites-enabled/default" ]; then
+    sudo rm /etc/nginx/sites-enabled/default
+    echo -e "${GREEN}✔ Дефолтный сайт nginx удален.${NC}"
 fi
 
 echo -e "${GREEN}✔ Конфигурация Nginx создана.${NC}"

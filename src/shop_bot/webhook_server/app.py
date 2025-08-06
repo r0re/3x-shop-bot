@@ -9,6 +9,7 @@ from datetime import datetime
 from functools import wraps
 from math import ceil
 from flask import Flask, request, render_template, redirect, url_for, flash, session, current_app
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,7 +31,8 @@ ALL_SETTINGS_KEYS = [
     "support_user", "support_text", "channel_url", "telegram_bot_token",
     "telegram_bot_username", "admin_telegram_id", "yookassa_shop_id",
     "yookassa_secret_key", "sbp_enabled", "receipt_email", "cryptobot_token",
-    "heleket_merchant_id", "heleket_api_key", "domain"
+    "heleket_merchant_id", "heleket_api_key", "domain", "referral_percentage", 
+    "referral_discount"
 ]
 
 def create_webhook_app(bot_controller_instance):
@@ -59,6 +61,7 @@ def create_webhook_app(bot_controller_instance):
     )
     
     flask_app.config['SECRET_KEY'] = 'lolkek4eburek'
+    flask_app.wsgi_app = ProxyFix(flask_app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
     @flask_app.context_processor
     def inject_current_year():
@@ -146,6 +149,8 @@ def create_webhook_app(bot_controller_instance):
     @login_required
     def settings_page():
         if request.method == 'POST':
+            logger.info(f"Form data received: {dict(request.form)}")
+            
             if 'panel_password' in request.form and request.form.get('panel_password'):
                 update_setting('panel_password', request.form.get('panel_password'))
             
@@ -154,9 +159,13 @@ def create_webhook_app(bot_controller_instance):
 
                 if key == 'sbp_enabled':
                     value = 'true' if 'sbp_enabled' in request.form else 'false'
+                    logger.info(f"Updating {key} with value: {value}")
                     update_setting(key, value)
-                elif key in request.form:
-                    update_setting(key, request.form.get(key, ''))
+                else:
+                    # Всегда обновляем значение, даже если оно пустое
+                    value = request.form.get(key, '')
+                    logger.info(f"Updating {key} with value: '{value}'")
+                    update_setting(key, value)
 
             flash('Настройки успешно сохранены!', 'success')
             return redirect(url_for('settings_page'))

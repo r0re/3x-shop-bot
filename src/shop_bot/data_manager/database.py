@@ -204,7 +204,7 @@ def update_setting(key: str, value: str):
     try:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
-            cursor.execute("UPDATE bot_settings SET value = ? WHERE key = ?", (value, key))
+            cursor.execute("INSERT OR REPLACE INTO bot_settings (key, value) VALUES (?, ?)", (key, value))
             conn.commit()
             logging.info(f"Setting '{key}' updated.")
     except sqlite3.Error as e:
