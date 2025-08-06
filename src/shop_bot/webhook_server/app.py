@@ -32,7 +32,7 @@ ALL_SETTINGS_KEYS = [
     "telegram_bot_username", "admin_telegram_id", "yookassa_shop_id",
     "yookassa_secret_key", "sbp_enabled", "receipt_email", "cryptobot_token",
     "heleket_merchant_id", "heleket_api_key", "domain", "referral_percentage", 
-    "referral_discount"
+    "referral_discount", "flask_secret_key"
 ]
 
 def create_webhook_app(bot_controller_instance):
@@ -60,7 +60,16 @@ def create_webhook_app(bot_controller_instance):
         static_folder='static'
     )
     
-    flask_app.config['SECRET_KEY'] = 'lolkek4eburek'
+    # Получаем SECRET_KEY из настроек базы данных
+    secret_key = get_setting('flask_secret_key')
+    if not secret_key:
+        # Генерируем новый ключ, если его нет
+        import secrets
+        secret_key = secrets.token_hex(32)
+        update_setting('flask_secret_key', secret_key)
+        logger.info("Generated new Flask SECRET_KEY")
+    
+    flask_app.config['SECRET_KEY'] = secret_key
     flask_app.wsgi_app = ProxyFix(flask_app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
     @flask_app.context_processor
@@ -149,7 +158,17 @@ def create_webhook_app(bot_controller_instance):
     @login_required
     def settings_page():
         if request.method == 'POST':
-            logger.info(f"Form data received: {dict(request.form)}")
+            # Логируем только безопасные поля формы (исключаем пароли и ключи)
+            safe_form_data = {}
+            sensitive_fields = {'panel_password', 'yookassa_secret_key', 'cryptobot_token', 'heleket_api_key', 'flask_secret_key'}
+            
+            for key, value in request.form.items():
+                if key in sensitive_fields:
+                    safe_form_data[key] = '***HIDDEN***' if value else ''
+                else:
+                    safe_form_data[key] = value
+            
+            logger.info(f"Settings form submitted with fields: {list(safe_form_data.keys())}")
             
             if 'panel_password' in request.form and request.form.get('panel_password'):
                 update_setting('panel_password', request.form.get('panel_password'))
@@ -159,12 +178,16 @@ def create_webhook_app(bot_controller_instance):
 
                 if key == 'sbp_enabled':
                     value = 'true' if 'sbp_enabled' in request.form else 'false'
-                    logger.info(f"Updating {key} with value: {value}")
                     update_setting(key, value)
                 else:
                     # Всегда обновляем значение, даже если оно пустое
                     value = request.form.get(key, '')
-                    logger.info(f"Updating {key} with value: '{value}'")
+                    # Логируем только факт обновления, но не значения чувствительных полей
+                    sensitive_fields = {'panel_password', 'yookassa_secret_key', 'cryptobot_token', 'heleket_api_key', 'flask_secret_key'}
+                    if key in sensitive_fields:
+                        logger.info(f"Updated setting: {key}")
+                    else:
+                        logger.info(f"Updated setting {key}: '{value}'")
                     update_setting(key, value)
 
             flash('Настройки успешно сохранены!', 'success')
@@ -265,9 +288,42 @@ def create_webhook_app(bot_controller_instance):
         flash("Тариф успешно удален.", 'success')
         return redirect(url_for('settings_page'))
 
+    def validate_yookassa_signature(data: bytes, signature: str, secret_key: str) -> bool:
+        """Проверяет подпись YooKassa webhook"""
+        try:
+            import hmac
+            expected_signature = base64.b64encode(
+                hmac.new(secret_key.encode(), data, hashlib.sha256).digest()
+            ).decode()
+            return compare_digest(expected_signature, signature)
+        except Exception as e:
+            logger.error(f"Error validating YooKassa signature: {e}")
+            return False
+
     @flask_app.route('/yookassa-webhook', methods=['POST'])
     def yookassa_webhook_handler():
         try:
+            # Получаем секретный ключ YooKassa
+            yookassa_secret = get_setting("yookassa_secret_key")
+            if not yookassa_secret:
+                logger.error("YooKassa webhook: Secret key not configured")
+                return 'Forbidden', 403
+            
+            # Проверяем подпись
+            signature = request.headers.get('Authorization')
+            if not signature:
+                logger.warning("YooKassa webhook: Missing Authorization header")
+                return 'Forbidden', 403
+                
+            # Убираем префикс "Bearer " если есть
+            if signature.startswith('Bearer '):
+                signature = signature[7:]
+            
+            raw_data = request.get_data()
+            if not validate_yookassa_signature(raw_data, signature, yookassa_secret):
+                logger.warning("YooKassa webhook: Invalid signature")
+                return 'Forbidden', 403
+            
             event_json = request.json
             if event_json.get("event") == "payment.succeeded":
                 metadata = event_json.get("object", {}).get("metadata", {})
@@ -290,6 +346,9 @@ def create_webhook_app(bot_controller_instance):
     def cryptobot_webhook_handler():
         try:
             request_data = request.json
+            # Логируем только основную информацию без чувствительных данных
+            if request_data:
+                logger.info(f"Received CryptoBot webhook, update_type: {request_data.get('update_type')}")
             
             if request_data and request_data.get('update_type') == 'invoice_paid':
                 payload_data = request_data.get('payload', {})
@@ -336,7 +395,9 @@ def create_webhook_app(bot_controller_instance):
     def heleket_webhook_handler():
         try:
             data = request.json
-            logger.info(f"Received Heleket webhook: {data}")
+            # Логируем только статус и основную информацию
+            if data:
+                logger.info(f"Received Heleket webhook, status: {data.get('status')}, amount: {data.get('amount')}")
 
             api_key = get_setting("heleket_api_key")
             if not api_key: return 'Error', 500

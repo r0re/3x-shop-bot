@@ -74,9 +74,29 @@ def initialize_db():
                     FOREIGN KEY (host_name) REFERENCES xui_hosts (host_name)
                 )
             ''')            
+            import secrets
+            import string
+            
+            # Генерируем случайные учетные данные для администратора
+            def generate_random_string(length=12):
+                chars = string.ascii_letters + string.digits
+                return ''.join(secrets.choice(chars) for _ in range(length))
+            
+            admin_login = f"admin_{generate_random_string(8)}"
+            admin_password = generate_random_string(16)
+            flask_secret = secrets.token_hex(32)
+            
+            # Сохраняем учетные данные в файл для вывода после установки
+            credentials_file = PROJECT_ROOT / "admin_credentials.txt"
+            with open(credentials_file, 'w') as f:
+                f.write(f"ADMIN_LOGIN={admin_login}\n")
+                f.write(f"ADMIN_PASSWORD={admin_password}\n")
+                f.write(f"FLASK_SECRET_KEY={flask_secret}\n")
+            
             default_settings = {
-                "panel_login": "admin",
-                "panel_password": "admin",
+                "panel_login": admin_login,
+                "panel_password": admin_password,
+                "flask_secret_key": flask_secret,
                 "about_text": None,
                 "terms_url": None,
                 "privacy_url": None,
