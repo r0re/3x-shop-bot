@@ -28,7 +28,7 @@ def create_main_menu_keyboard(user_keys: list, trial_available: bool) -> InlineK
 def create_about_keyboard(channel_url: str | None, terms_url: str | None, privacy_url: str | None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if channel_url:
-        builder.button(text="📰 Наш канал", url=terms_url)
+        builder.button(text="📰 Наш канал", url=channel_url)
     if terms_url:
         builder.button(text="📄 Условия использования", url=terms_url)
     if privacy_url:
@@ -39,7 +39,15 @@ def create_about_keyboard(channel_url: str | None, terms_url: str | None, privac
     
 def create_support_keyboard(support_user: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="🆘 Написать в поддержку", url=support_user)
+    if support_user:
+        # Если support_user не начинается с http, добавляем t.me/
+        if not support_user.startswith('http'):
+            # Убираем @ если есть и добавляем t.me/
+            username = support_user.lstrip('@')
+            support_url = f"https://t.me/{username}"
+        else:
+            support_url = support_user
+        builder.button(text="🆘 Написать в поддержку", url=support_url)
     builder.button(text="⬅️ Назад в меню", callback_data="back_to_main_menu")
     builder.adjust(1)
     return builder.as_markup()
