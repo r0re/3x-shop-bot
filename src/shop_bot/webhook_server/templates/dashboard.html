@@ -31,7 +31,19 @@ block content %}
 	
 	<!-- Системный мониторинг -->
 	<div class="stat-card system-stat">
-		<h3>Память</h3>
+		<h3>Процессор</h3>
+		<p class="stat-number">
+			{{ system_resources.cpu_usage }}<small>%</small>
+		</p>
+		<div class="stat-trend">
+			{{ system_resources.cpu_cores }} ядер
+		</div>
+		<div class="progress-bar">
+			<div class="progress-fill" style="width: {{ system_resources.cpu_usage }}%"></div>
+		</div>
+	</div>
+	<div class="stat-card system-stat">
+		<h3>Оперативная память</h3>
 		<p class="stat-number">
 			{{ system_resources.memory_used_percent }}<small>%</small>
 		</p>
@@ -55,18 +67,6 @@ block content %}
 		</div>
 	</div>
 	<div class="stat-card system-stat">
-		<h3>Процессор</h3>
-		<p class="stat-number">
-			{{ system_resources.cpu_usage }}<small>%</small>
-		</p>
-		<div class="stat-trend">
-			{{ system_resources.cpu_cores }} ядер
-		</div>
-		<div class="progress-bar">
-			<div class="progress-fill" style="width: {{ system_resources.cpu_usage }}%"></div>
-		</div>
-	</div>
-	<div class="stat-card system-stat">
 		<h3>Сеть</h3>
 		<p class="stat-number">
 			{{ system_resources.net_rx_mb | round }}<small>MB</small>
@@ -81,9 +81,7 @@ block content %}
 	</div>
 {% endblock %}
 
-<section class="stats-section">
-	<!-- Статистика уже отображена в блоке stats -->
-</section>
+<!-- Секция stats-section удалена, так как статистика уже отображена в блоке stats выше -->
 
 <div class="dashboard-container">
 	<div class="dashboard-column-left">
