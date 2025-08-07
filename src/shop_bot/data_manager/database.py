@@ -125,7 +125,7 @@ def initialize_db():
                 "ton_wallet_address": None,
                 "tonapi_key": None,
             }
-            _run_migrations(conn)
+            run_migration()
             
             # Проверяем, нужно ли инициализировать настройки
             cursor.execute("SELECT COUNT(*) FROM bot_settings WHERE key = 'panel_login'")
