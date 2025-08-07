@@ -717,3 +717,374 @@ def delete_user_keys(user_id: int):
             conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Failed to delete keys for user {user_id}: {e}")
+
+def get_user_keys_with_remaining_time(user_id: int) -> list[dict]:
+    """Получает ключи пользователя с информацией об оставшемся времени"""
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT key_id, host_name, xui_client_uuid, key_email, 
+                       expiry_date, created_date
+                FROM vpn_keys 
+                WHERE user_id = ? 
+                ORDER BY key_id
+            """, (user_id,))
+            
+            keys = []
+            for row in cursor.fetchall():
+                key_data = dict(row)
+                
+                # Вычисляем оставшееся время
+                if key_data['expiry_date']:
+                    try:
+                        expiry = datetime.fromisoformat(key_data['expiry_date'].replace('Z', '+00:00'))
+                        now = datetime.utcnow()
+                        remaining_days = max(0, (expiry - now).days)
+                        key_data['remaining_days'] = remaining_days
+                    except:
+                        key_data['remaining_days'] = 0
+                else:
+                    key_data['remaining_days'] = 0
+                
+                keys.append(key_data)
+            
+            return keys
+    except sqlite3.Error as e:
+        logging.error(f"Failed to get keys with remaining time for user {user_id}: {e}")
+        return []
+
+def get_user_transactions(user_id: int) -> list[dict]:
+    """Получает транзакции пользователя"""
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT transaction_id, username, email, host_name, plan_name,
+                       months, amount_spent, payment_method, transaction_date
+                FROM transactions 
+                WHERE user_id = ? 
+                ORDER BY transaction_date DESC
+            """, (user_id,))
+            
+            return [dict(row) for row in cursor.fetchall()]
+    except sqlite3.Error as e:
+        logging.error(f"Failed to get transactions for user {user_id}: {e}")
+        return []
+
+def export_all_users() -> dict:
+    """Экспортирует всех пользователей с их данными в JSON формат"""
+    try:
+        users = get_all_users()
+        export_data = {
+            "export_date": datetime.utcnow().isoformat() + "Z",
+            "version": "1.0",
+            "total_users": len(users),
+            "users": []
+        }
+        
+        for user in users:
+            user_data = dict(user)
+            user_data['keys'] = get_user_keys_with_remaining_time(user['telegram_id'])
+            user_data['transactions'] = get_user_transactions(user['telegram_id'])
+            export_data['users'].append(user_data)
+        
+        logging.info(f"Successfully exported {len(users)} users")
+        return export_data
+        
+    except Exception as e:
+        logging.error(f"Failed to export users: {e}")
+        raise
+
+def import_users_from_data(import_data: dict, overwrite_existing: bool = True) -> dict:
+    """Импортирует пользователей из JSON данных"""
+    results = {
+        "imported": 0,
+        "updated": 0,
+        "skipped": 0,
+        "errors": [],
+        "keys_imported": 0,
+        "transactions_imported": 0
+    }
+    
+    if not import_data.get('users'):
+        results['errors'].append("No users data found in import file")
+        return results
+    
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            for user_data in import_data['users']:
+                try:
+                    telegram_id = user_data.get('telegram_id')
+                    if not telegram_id:
+                        results['errors'].append("User without telegram_id found")
+                        continue
+                    
+                    # Проверяем существует ли пользователь
+                    cursor.execute("SELECT telegram_id FROM users WHERE telegram_id = ?", (telegram_id,))
+                    existing_user = cursor.fetchone()
+                    
+                    if existing_user and not overwrite_existing:
+                        results['skipped'] += 1
+                        continue
+                    
+                    # Импортируем/обновляем пользователя
+                    if existing_user:
+                        # Обновляем существующего пользователя
+                        cursor.execute("""
+                            UPDATE users SET 
+                                username = ?, total_spent = ?, total_months = ?,
+                                trial_used = ?, agreed_to_terms = ?, registration_date = ?,
+                                is_banned = ?, referred_by = ?, referral_balance = ?
+                            WHERE telegram_id = ?
+                        """, (
+                            user_data.get('username'),
+                            user_data.get('total_spent', 0),
+                            user_data.get('total_months', 0),
+                            user_data.get('trial_used', False),
+                            user_data.get('agreed_to_terms', False),
+                            user_data.get('registration_date'),
+                            user_data.get('is_banned', False),
+                            user_data.get('referred_by'),
+                            user_data.get('referral_balance', 0),
+                            telegram_id
+                        ))
+                        results['updated'] += 1
+                    else:
+                        # Создаем нового пользователя
+                        cursor.execute("""
+                            INSERT INTO users 
+                            (telegram_id, username, total_spent, total_months, trial_used,
+                             agreed_to_terms, registration_date, is_banned, referred_by, referral_balance)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            telegram_id,
+                            user_data.get('username'),
+                            user_data.get('total_spent', 0),
+                            user_data.get('total_months', 0),
+                            user_data.get('trial_used', False),
+                            user_data.get('agreed_to_terms', False),
+                            user_data.get('registration_date', datetime.utcnow().isoformat()),
+                            user_data.get('is_banned', False),
+                            user_data.get('referred_by'),
+                            user_data.get('referral_balance', 0)
+                        ))
+                        results['imported'] += 1
+                    
+                    # Импортируем ключи пользователя
+                    if user_data.get('keys'):
+                        # Удаляем старые ключи если перезаписываем
+                        if overwrite_existing:
+                            cursor.execute("DELETE FROM vpn_keys WHERE user_id = ?", (telegram_id,))
+                        
+                        for key_data in user_data['keys']:
+                            cursor.execute("""
+                                INSERT OR REPLACE INTO vpn_keys 
+                                (user_id, host_name, xui_client_uuid, key_email, expiry_date, created_date)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            """, (
+                                telegram_id,
+                                key_data.get('host_name'),
+                                key_data.get('xui_client_uuid'),
+                                key_data.get('key_email'),
+                                key_data.get('expiry_date'),
+                                key_data.get('created_date', datetime.utcnow().isoformat())
+                            ))
+                            results['keys_imported'] += 1
+                    
+                    # Импортируем транзакции пользователя
+                    if user_data.get('transactions'):
+                        for transaction_data in user_data['transactions']:
+                            # Проверяем, существует ли транзакция
+                            cursor.execute("""
+                                SELECT transaction_id FROM transactions 
+                                WHERE user_id = ? AND transaction_date = ? AND amount_spent = ?
+                            """, (
+                                telegram_id,
+                                transaction_data.get('transaction_date'),
+                                transaction_data.get('amount_spent')
+                            ))
+                            
+                            if not cursor.fetchone():  # Добавляем только если транзакции нет
+                                cursor.execute("""
+                                    INSERT INTO transactions 
+                                    (user_id, username, email, host_name, plan_name, months,
+                                     amount_spent, payment_method, transaction_date)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """, (
+                                    telegram_id,
+                                    transaction_data.get('username'),
+                                    transaction_data.get('email'),
+                                    transaction_data.get('host_name'),
+                                    transaction_data.get('plan_name'),
+                                    transaction_data.get('months'),
+                                    transaction_data.get('amount_spent'),
+                                    transaction_data.get('payment_method'),
+                                    transaction_data.get('transaction_date')
+                                ))
+                                results['transactions_imported'] += 1
+                
+                except Exception as e:
+                    results['errors'].append(f"User {telegram_id}: {str(e)}")
+                    continue
+            
+            conn.commit()
+            logging.info(f"Import completed: {results}")
+            
+    except sqlite3.Error as e:
+        logging.error(f"Database error during import: {e}")
+        results['errors'].append(f"Database error: {str(e)}")
+    
+    return results
+
+async def extend_user_key_time(key_id: int, days_to_add: int) -> dict:
+    """Продлевает время действия конкретного ключа пользователя"""
+    from shop_bot.modules.xui_api import create_or_update_key_on_host
+    
+    result = {
+        "success": False,
+        "message": "",
+        "old_expiry": None,
+        "new_expiry": None
+    }
+    
+    try:
+        # Получаем данные ключа
+        key_data = get_key_by_id(key_id)
+        if not key_data:
+            result["message"] = "Ключ не найден"
+            return result
+        
+        # Сохраняем старую дату истечения
+        if key_data['expiry_date']:
+            old_expiry = datetime.fromisoformat(key_data['expiry_date'].replace('Z', '+00:00'))
+            result["old_expiry"] = old_expiry.strftime('%Y-%m-%d %H:%M')
+        
+        # Обновляем ключ на x-ui сервере
+        xui_result = await create_or_update_key_on_host(
+            host_name=key_data['host_name'],
+            email=key_data['key_email'],
+            days_to_add=days_to_add
+        )
+        
+        if not xui_result:
+            result["message"] = "Ошибка при обновлении ключа на сервере"
+            return result
+        
+        # Обновляем данные в базе
+        update_key_info(
+            key_id=key_id,
+            new_xui_uuid=xui_result['client_uuid'],
+            new_expiry_ms=xui_result['expiry_timestamp_ms']
+        )
+        
+        # Получаем новую дату истечения
+        new_expiry = datetime.fromtimestamp(xui_result['expiry_timestamp_ms'] / 1000)
+        result["new_expiry"] = new_expiry.strftime('%Y-%m-%d %H:%M')
+        
+        result["success"] = True
+        result["message"] = f"Ключ успешно {'продлен' if days_to_add > 0 else 'сокращен'} на {abs(days_to_add)} дней"
+        
+        logging.info(f"Key {key_id} time updated: {days_to_add} days added")
+        
+    except Exception as e:
+        logging.error(f"Failed to extend key {key_id} time: {e}", exc_info=True)
+        result["message"] = f"Ошибка: {str(e)}"
+    
+    return result
+
+async def extend_user_all_keys_time(user_id: int, days_to_add: int) -> dict:
+    """Продлевает время действия всех ключей пользователя"""
+    result = {
+        "success": False,
+        "message": "",
+        "updated_keys": 0,
+        "failed_keys": 0,
+        "details": []
+    }
+    
+    try:
+        user_keys = get_user_keys(user_id)
+        if not user_keys:
+            result["message"] = "У пользователя нет ключей"
+            return result
+        
+        for key in user_keys:
+            try:
+                key_result = await extend_user_key_time(key['key_id'], days_to_add)
+                if key_result["success"]:
+                    result["updated_keys"] += 1
+                    result["details"].append(f"✅ {key['key_email']}: {key_result['message']}")
+                else:
+                    result["failed_keys"] += 1
+                    result["details"].append(f"❌ {key['key_email']}: {key_result['message']}")
+            except Exception as e:
+                result["failed_keys"] += 1
+                result["details"].append(f"❌ {key['key_email']}: {str(e)}")
+        
+        if result["updated_keys"] > 0:
+            result["success"] = True
+            result["message"] = f"Обновлено ключей: {result['updated_keys']}, ошибок: {result['failed_keys']}"
+        else:
+            result["message"] = "Не удалось обновить ни одного ключа"
+        
+        logging.info(f"User {user_id} keys time updated: {result['updated_keys']} success, {result['failed_keys']} failed")
+        
+    except Exception as e:
+        logging.error(f"Failed to extend user {user_id} keys time: {e}", exc_info=True)
+        result["message"] = f"Ошибка: {str(e)}"
+    
+    return result
+
+async def extend_all_users_keys_time(days_to_add: int, admin_user: str = "admin") -> dict:
+    """Продлевает время действия всех ключей всех пользователей"""
+    result = {
+        "success": False,
+        "message": "",
+        "processed_users": 0,
+        "updated_keys": 0,
+        "failed_keys": 0,
+        "details": []
+    }
+    
+    try:
+        all_users = get_all_users()
+        if not all_users:
+            result["message"] = "Пользователи не найдены"
+            return result
+        
+        for user in all_users:
+            user_id = user['telegram_id']
+            username = user.get('username', f'ID_{user_id}')
+            
+            try:
+                user_result = await extend_user_all_keys_time(user_id, days_to_add)
+                result["processed_users"] += 1
+                result["updated_keys"] += user_result["updated_keys"]
+                result["failed_keys"] += user_result["failed_keys"]
+                
+                if user_result["updated_keys"] > 0:
+                    result["details"].append(f"👤 {username}: обновлено {user_result['updated_keys']} ключей")
+                elif user_result["failed_keys"] > 0:
+                    result["details"].append(f"👤 {username}: ошибки с {user_result['failed_keys']} ключами")
+                    
+            except Exception as e:
+                result["details"].append(f"👤 {username}: ошибка - {str(e)}")
+        
+        if result["updated_keys"] > 0:
+            result["success"] = True
+            result["message"] = f"Массовое обновление завершено. Пользователей: {result['processed_users']}, ключей обновлено: {result['updated_keys']}, ошибок: {result['failed_keys']}"
+        else:
+            result["message"] = "Не удалось обновить ни одного ключа"
+        
+        logging.info(f"Mass keys time update by {admin_user}: {result['updated_keys']} keys updated, {result['failed_keys']} failed")
+        
+    except Exception as e:
+        logging.error(f"Failed to extend all users keys time: {e}", exc_info=True)
+        result["message"] = f"Ошибка: {str(e)}"
+    
+    return result

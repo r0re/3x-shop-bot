@@ -8,6 +8,9 @@
 			rel="stylesheet"
 			href="{{ url_for('static', filename='css/style.css') }}"
 		/>
+		<link rel="preconnect" href="https://fonts.googleapis.com">
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+		<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
 		<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 	</head>
 	<body>
@@ -38,6 +41,12 @@
 				</nav>
 
 				<div class="header-controls">
+					<!-- Theme Switcher -->
+					<div class="theme-switcher">
+						<button id="themeToggle" class="button button-text button-small" title="Переключить тему">
+							<span id="themeIcon">🌙</span>
+						</button>
+					</div>
 					<div class="bot-control">
 						{% if bot_status.is_running %}
 						<p class="status-running">Статус: <strong>Запущен</strong></p>
@@ -83,6 +92,65 @@
 		</div>
 
 		<footer class="main-footer"></footer>
+		
+		<!-- Theme Switcher Script -->
+		<script>
+			// Theme management
+			const themeToggle = document.getElementById('themeToggle');
+			const themeIcon = document.getElementById('themeIcon');
+			const body = document.body;
+
+			// Get saved theme or default to light
+			const currentTheme = localStorage.getItem('theme') || 'light';
+			
+			// Apply theme on load
+			if (currentTheme === 'dark') {
+				body.setAttribute('data-theme', 'dark');
+				themeIcon.textContent = '☀️';
+			} else {
+				body.removeAttribute('data-theme');
+				themeIcon.textContent = '🌙';
+			}
+
+			// Theme toggle handler
+			themeToggle.addEventListener('click', () => {
+				const isDark = body.getAttribute('data-theme') === 'dark';
+				
+				if (isDark) {
+					body.removeAttribute('data-theme');
+					themeIcon.textContent = '🌙';
+					localStorage.setItem('theme', 'light');
+				} else {
+					body.setAttribute('data-theme', 'dark');
+					themeIcon.textContent = '☀️';
+					localStorage.setItem('theme', 'dark');
+				}
+			});
+
+			// Auto-detect system theme preference (optional)
+			if (!localStorage.getItem('theme')) {
+				const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+				if (prefersDark) {
+					body.setAttribute('data-theme', 'dark');
+					themeIcon.textContent = '☀️';
+					localStorage.setItem('theme', 'dark');
+				}
+			}
+
+			// Listen for system theme changes
+			window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+				if (!localStorage.getItem('theme')) {
+					if (e.matches) {
+						body.setAttribute('data-theme', 'dark');
+						themeIcon.textContent = '☀️';
+					} else {
+						body.removeAttribute('data-theme');
+						themeIcon.textContent = '🌙';
+					}
+				}
+			});
+		</script>
+		
 		<script src="{{ url_for('static', filename='js/script.js') }}"></script>
 	</body>
 </html>

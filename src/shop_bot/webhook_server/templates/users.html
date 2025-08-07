@@ -4,6 +4,53 @@
 <h1>Управление Пользователями</h1>
 
 <section class="settings-section">
+	<h2>Импорт/Экспорт пользователей</h2>
+	<div class="form-group" style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px;">
+		<!-- Кнопка экспорта -->
+		<a href="{{ url_for('export_users') }}" class="button button-primary">
+			📥 Экспортировать всех пользователей
+		</a>
+		
+		<!-- Форма импорта -->
+		<form action="{{ url_for('import_users') }}" method="post" enctype="multipart/form-data" style="display: flex; gap: 10px; align-items: center;">
+			<input type="file" name="import_file" accept=".json" required style="min-width: 200px;">
+			<label style="display: flex; align-items: center; gap: 5px; font-size: 14px;">
+				<input type="checkbox" name="overwrite_existing" value="on" checked>
+				Перезаписать существующих
+			</label>
+			<button type="submit" class="button button-secondary">📤 Импортировать</button>
+		</form>
+	</div>
+	<div style="background: #f8f9fa; padding: 10px; border-radius: 5px; font-size: 13px; color: #666; margin-bottom: 20px;">
+		<strong>Примечание:</strong> Экспорт включает всех пользователей с их ключами, транзакциями и оставшимся временем. 
+		При импорте существующие пользователи будут обновлены, если включена опция перезаписи.
+	</div>
+</section>
+
+<section class="settings-section">
+	<h2>⏰ Массовое управление временем ключей</h2>
+	<div class="form-group" style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px;">
+		<form action="{{ url_for('extend_all_users_keys_time_route') }}" method="post" 
+			  style="display: flex; gap: 10px; align-items: center;"
+			  onsubmit="return confirm('Вы уверены, что хотите изменить время ВСЕХ ключей ВСЕХ пользователей? Это действие необратимо!');">
+			
+			<label style="font-weight: bold;">Добавить всем ключам:</label>
+			<input type="number" name="days_to_add" placeholder="Дни" min="-365" max="365" required 
+				   style="width: 100px;" title="Положительное число - добавить дни, отрицательное - убавить">
+			<span style="font-size: 14px; color: #666;">дней</span>
+			<button type="submit" class="button button-warning">
+				🌍 Применить ко всем пользователям
+			</button>
+		</form>
+	</div>
+	<div style="background: #fff3cd; padding: 10px; border-radius: 5px; font-size: 13px; color: #856404; border: 1px solid #ffeaa7;">
+		<strong>⚠️ Внимание:</strong> Эта операция изменит время действия ВСЕХ ключей ВСЕХ пользователей. 
+		Используйте положительные числа для продления, отрицательные - для сокращения времени.
+		Максимум: ±365 дней за одну операцию.
+	</div>
+</section>
+
+<section class="settings-section">
 	<h2>Список пользователей</h2>
 	<div style="overflow-x: auto">
 		<table class="users-table">
@@ -52,11 +99,20 @@
 								Бан
 							</button>
 						</form>
-						{% endif %} {% if user.user_keys %}
+						{% endif %} 
+						
+						{% if user.user_keys %}
+						<!-- Кнопка управления временем ключей -->
+						<button type="button" class="button button-secondary button-small" 
+								onclick="openTimeManagementModal({{ user.telegram_id }}, '{{ user.username or 'ID_' + user.telegram_id|string }}')">
+							⏰ Время
+						</button>
+						
 						<form
 							action="{{ url_for('revoke_keys_route', user_id=user.telegram_id) }}"
 							method="post"
 							data-confirm="ВНИМАНИЕ! Это действие удалит ВСЕ ключи пользователя с серверов. Вы уверены?"
+							style="display: inline;"
 						>
 							<button type="submit" class="button button-danger button-small">
 								Отозвать
@@ -70,5 +126,301 @@
 		</table>
 	</div>
 </section>
+
+<!-- Модальное окно управления временем ключей -->
+<div id="timeManagementModal" class="modal" style="display: none;">
+	<div class="modal-content">
+		<div class="modal-header">
+			<h3 id="modalTitle">Управление временем ключей</h3>
+			<span class="close" onclick="closeTimeManagementModal()">&times;</span>
+		</div>
+		<div class="modal-body">
+			<div id="keysInfo" class="keys-info">
+				<div class="loading">Загрузка информации о ключах...</div>
+			</div>
+			
+			<div class="time-management-section">
+				<h4>Изменить время всех ключей пользователя:</h4>
+				<form id="userKeysTimeForm" style="display: flex; gap: 10px; align-items: center; margin: 15px 0;">
+					<input type="hidden" id="selectedUserId" name="user_id">
+					<label>Добавить/убавить:</label>
+					<input type="number" id="userDaysInput" name="days_to_add" placeholder="Дни" 
+						   min="-3650" max="3650" required style="width: 100px;"
+						   title="Положительное число - добавить дни, отрицательное - убавить">
+					<span>дней</span>
+					<button type="submit" class="button button-primary">Применить</button>
+				</form>
+			</div>
+			
+			<div id="operationResult" class="operation-result" style="display: none;"></div>
+		</div>
+	</div>
+</div>
+
+<style>
+/* Стили для модального окна */
+.modal {
+	position: fixed;
+	z-index: 1000;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+	background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+	background-color: #fefefe;
+	margin: 5% auto;
+	padding: 0;
+	border: 1px solid #888;
+	width: 80%;
+	max-width: 800px;
+	border-radius: 8px;
+	max-height: 90vh;
+	overflow-y: auto;
+}
+
+.modal-header {
+	padding: 15px 20px;
+	background-color: #f8f9fa;
+	border-bottom: 1px solid #dee2e6;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.modal-header h3 {
+	margin: 0;
+}
+
+.close {
+	color: #aaa;
+	font-size: 28px;
+	font-weight: bold;
+	cursor: pointer;
+}
+
+.close:hover {
+	color: black;
+}
+
+.modal-body {
+	padding: 20px;
+}
+
+.keys-info {
+	margin-bottom: 20px;
+}
+
+.key-item {
+	background: #f8f9fa;
+	border: 1px solid #dee2e6;
+	border-radius: 5px;
+	padding: 15px;
+	margin-bottom: 10px;
+}
+
+.key-email {
+	font-weight: bold;
+	color: #495057;
+}
+
+.key-details {
+	margin-top: 8px;
+	font-size: 14px;
+	color: #6c757d;
+}
+
+.key-expiry {
+	margin-top: 5px;
+}
+
+.key-expiry.expired {
+	color: #dc3545;
+}
+
+.key-expiry.warning {
+	color: #fd7e14;
+}
+
+.key-expiry.active {
+	color: #28a745;
+}
+
+.time-management-section {
+	border-top: 1px solid #dee2e6;
+	padding-top: 20px;
+}
+
+.operation-result {
+	margin-top: 15px;
+	padding: 10px;
+	border-radius: 5px;
+}
+
+.operation-result.success {
+	background-color: #d4edda;
+	border: 1px solid #c3e6cb;
+	color: #155724;
+}
+
+.operation-result.error {
+	background-color: #f8d7da;
+	border: 1px solid #f5c6cb;
+	color: #721c24;
+}
+
+.loading {
+	text-align: center;
+	padding: 20px;
+	color: #6c757d;
+}
+</style>
+
+<script>
+let currentUserId = null;
+let currentUsername = null;
+
+function openTimeManagementModal(userId, username) {
+	currentUserId = userId;
+	currentUsername = username;
+	
+	document.getElementById('modalTitle').textContent = `Управление временем ключей - ${username}`;
+	document.getElementById('selectedUserId').value = userId;
+	document.getElementById('timeManagementModal').style.display = 'block';
+	document.getElementById('operationResult').style.display = 'none';
+	
+	// Загружаем информацию о ключах
+	loadUserKeysInfo(userId);
+}
+
+function closeTimeManagementModal() {
+	document.getElementById('timeManagementModal').style.display = 'none';
+	document.getElementById('userDaysInput').value = '';
+}
+
+function loadUserKeysInfo(userId) {
+	const keysInfo = document.getElementById('keysInfo');
+	keysInfo.innerHTML = '<div class="loading">Загрузка информации о ключах...</div>';
+	
+	fetch(`/get-user-keys-info/${userId}`)
+		.then(response => response.json())
+		.then(data => {
+			if (data.success) {
+				displayKeysInfo(data.keys);
+			} else {
+				keysInfo.innerHTML = `<div class="error">Ошибка: ${data.message}</div>`;
+			}
+		})
+		.catch(error => {
+			keysInfo.innerHTML = `<div class="error">Ошибка загрузки: ${error.message}</div>`;
+		});
+}
+
+function displayKeysInfo(keys) {
+	const keysInfo = document.getElementById('keysInfo');
+	
+	if (keys.length === 0) {
+		keysInfo.innerHTML = '<div class="no-keys">У пользователя нет активных ключей</div>';
+		return;
+	}
+	
+	let html = '<h4>Текущие ключи пользователя:</h4>';
+	
+	keys.forEach(key => {
+		const remainingDays = key.remaining_days;
+		let expiryClass = 'active';
+		let statusText = '';
+		
+		if (remainingDays <= 0) {
+			expiryClass = 'expired';
+			statusText = 'Истек';
+		} else if (remainingDays <= 7) {
+			expiryClass = 'warning';
+			statusText = `Осталось ${remainingDays} дн.`;
+		} else {
+			statusText = `Осталось ${remainingDays} дн.`;
+		}
+		
+		const expiryDate = key.expiry_date ? new Date(key.expiry_date).toLocaleString() : 'Не указано';
+		
+		html += `
+			<div class="key-item">
+				<div class="key-email">${key.key_email}</div>
+				<div class="key-details">
+					<div>Сервер: ${key.host_name}</div>
+					<div>Создан: ${key.created_date ? new Date(key.created_date).toLocaleDateString() : 'Не указано'}</div>
+				</div>
+				<div class="key-expiry ${expiryClass}">
+					<strong>${statusText}</strong> (до ${expiryDate})
+				</div>
+			</div>
+		`;
+	});
+	
+	keysInfo.innerHTML = html;
+}
+
+// Обработка формы изменения времени
+document.getElementById('userKeysTimeForm').addEventListener('submit', function(e) {
+	e.preventDefault();
+	
+	const formData = new FormData(this);
+	const daysToAdd = parseInt(formData.get('days_to_add'));
+	
+	if (!daysToAdd || Math.abs(daysToAdd) > 3650) {
+		showOperationResult('Неверное количество дней (максимум ±3650)', false);
+		return;
+	}
+	
+	const confirmMessage = daysToAdd > 0 
+		? `Добавить ${daysToAdd} дней ко всем ключам пользователя ${currentUsername}?`
+		: `Убавить ${Math.abs(daysToAdd)} дней у всех ключей пользователя ${currentUsername}?`;
+	
+	if (!confirm(confirmMessage)) {
+		return;
+	}
+	
+	// Отправляем запрос
+	fetch('/extend-user-all-keys-time', {
+		method: 'POST',
+		body: formData
+	})
+	.then(response => response.json())
+	.then(data => {
+		showOperationResult(data.message, data.success);
+		if (data.success) {
+			// Перезагружаем информацию о ключах
+			setTimeout(() => {
+				loadUserKeysInfo(currentUserId);
+			}, 1000);
+		}
+	})
+	.catch(error => {
+		showOperationResult(`Ошибка: ${error.message}`, false);
+	});
+});
+
+function showOperationResult(message, success) {
+	const resultDiv = document.getElementById('operationResult');
+	resultDiv.className = `operation-result ${success ? 'success' : 'error'}`;
+	resultDiv.textContent = message;
+	resultDiv.style.display = 'block';
+	
+	// Скрываем результат через 5 секунд
+	setTimeout(() => {
+		resultDiv.style.display = 'none';
+	}, 5000);
+}
+
+// Закрытие модального окна при клике вне его
+window.onclick = function(event) {
+	const modal = document.getElementById('timeManagementModal');
+	if (event.target === modal) {
+		closeTimeManagementModal();
+	}
+}
+</script>
 
 {% endblock %}

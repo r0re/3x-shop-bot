@@ -21,7 +21,9 @@ from shop_bot.data_manager.database import (
     create_host, delete_host, create_plan, delete_plan, get_user_count,
     get_total_keys_count, get_total_spent_sum, get_daily_stats_for_charts,
     get_recent_transactions, get_paginated_transactions, get_all_users, get_user_keys,
-    ban_user, unban_user, delete_user_keys, get_setting, find_and_complete_ton_transaction
+    ban_user, unban_user, delete_user_keys, get_setting, find_and_complete_ton_transaction,
+    export_all_users, import_users_from_data, extend_user_key_time, extend_user_all_keys_time,
+    extend_all_users_keys_time
 )
 
 _bot_controller = None
@@ -463,5 +465,202 @@ def create_webhook_app(bot_controller_instance):
         except Exception as e:
             logger.error(f"Error in ton webhook handler: {e}", exc_info=True)
             return 'Error', 500
+
+    @flask_app.route('/export-users')
+    @login_required
+    def export_users():
+        """Экспорт всех пользователей в JSON файл"""
+        try:
+            export_data = export_all_users()
+            
+            # Создаем имя файла с датой
+            from datetime import datetime
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"users_export_{timestamp}.json"
+            
+            # Создаем JSON response для скачивания
+            response = flask_app.response_class(
+                response=json.dumps(export_data, indent=2, ensure_ascii=False),
+                status=200,
+                mimetype='application/json'
+            )
+            response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+            
+            logger.info(f"Users export completed: {export_data['total_users']} users")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Export failed: {e}", exc_info=True)
+            flash(f'Ошибка при экспорте: {str(e)}', 'danger')
+            return redirect(url_for('users_page'))
+
+    @flask_app.route('/import-users', methods=['POST'])
+    @login_required
+    def import_users():
+        """Импорт пользователей из JSON файла"""
+        try:
+            if 'import_file' not in request.files:
+                flash('Файл не выбран', 'danger')
+                return redirect(url_for('users_page'))
+            
+            file = request.files['import_file']
+            if file.filename == '':
+                flash('Файл не выбран', 'danger')
+                return redirect(url_for('users_page'))
+            
+            if not file.filename.endswith('.json'):
+                flash('Можно загружать только JSON файлы', 'danger')
+                return redirect(url_for('users_page'))
+            
+            # Читаем содержимое файла
+            try:
+                import_data = json.loads(file.read().decode('utf-8'))
+            except json.JSONDecodeError as e:
+                flash(f'Ошибка чтения JSON файла: {str(e)}', 'danger')
+                return redirect(url_for('users_page'))
+            
+            # Проверяем наличие параметра перезаписи
+            overwrite = request.form.get('overwrite_existing', 'off') == 'on'
+            
+            # Выполняем импорт
+            results = import_users_from_data(import_data, overwrite_existing=overwrite)
+            
+            # Формируем сообщение о результатах
+            success_msg = []
+            if results['imported'] > 0:
+                success_msg.append(f"Импортировано новых пользователей: {results['imported']}")
+            if results['updated'] > 0:
+                success_msg.append(f"Обновлено существующих: {results['updated']}")
+            if results['skipped'] > 0:
+                success_msg.append(f"Пропущено: {results['skipped']}")
+            if results['keys_imported'] > 0:
+                success_msg.append(f"Импортировано ключей: {results['keys_imported']}")
+            if results['transactions_imported'] > 0:
+                success_msg.append(f"Импортировано транзакций: {results['transactions_imported']}")
+            
+            if success_msg:
+                flash(' | '.join(success_msg), 'success')
+            
+            # Показываем ошибки если есть
+            if results['errors']:
+                error_msg = f"Ошибки при импорте ({len(results['errors'])}): " + '; '.join(results['errors'][:3])
+                if len(results['errors']) > 3:
+                    error_msg += f" и еще {len(results['errors']) - 3}..."
+                flash(error_msg, 'warning')
+            
+            logger.info(f"Import completed: {results}")
+            return redirect(url_for('users_page'))
+            
+        except Exception as e:
+            logger.error(f"Import failed: {e}", exc_info=True)
+            flash(f'Ошибка при импорте: {str(e)}', 'danger')
+            return redirect(url_for('users_page'))
+
+    @flask_app.route('/extend-user-key-time', methods=['POST'])
+    @login_required
+    def extend_user_key_time_route():
+        """Продление времени конкретного ключа пользователя"""
+        try:
+            key_id = request.form.get('key_id', type=int)
+            days_to_add = request.form.get('days_to_add', type=int)
+            
+            if not key_id or days_to_add is None:
+                return {'success': False, 'message': 'Неверные параметры'}, 400
+            
+            # Проверяем разумные ограничения
+            if abs(days_to_add) > 3650:  # Не больше 10 лет
+                return {'success': False, 'message': 'Слишком большое количество дней'}, 400
+            
+            # Выполняем операцию
+            import asyncio
+            result = asyncio.run(extend_user_key_time(key_id, days_to_add))
+            
+            status_code = 200 if result['success'] else 400
+            return result, status_code
+            
+        except Exception as e:
+            logger.error(f"Error extending user key time: {e}", exc_info=True)
+            return {'success': False, 'message': f'Ошибка: {str(e)}'}, 500
+
+    @flask_app.route('/extend-user-all-keys-time', methods=['POST'])
+    @login_required
+    def extend_user_all_keys_time_route():
+        """Продление времени всех ключей пользователя"""
+        try:
+            user_id = request.form.get('user_id', type=int)
+            days_to_add = request.form.get('days_to_add', type=int)
+            
+            if not user_id or days_to_add is None:
+                return {'success': False, 'message': 'Неверные параметры'}, 400
+            
+            if abs(days_to_add) > 3650:
+                return {'success': False, 'message': 'Слишком большое количество дней'}, 400
+            
+            import asyncio
+            result = asyncio.run(extend_user_all_keys_time(user_id, days_to_add))
+            
+            status_code = 200 if result['success'] else 400
+            return result, status_code
+            
+        except Exception as e:
+            logger.error(f"Error extending user all keys time: {e}", exc_info=True)
+            return {'success': False, 'message': f'Ошибка: {str(e)}'}, 500
+
+    @flask_app.route('/extend-all-users-keys-time', methods=['POST'])
+    @login_required
+    def extend_all_users_keys_time_route():
+        """Массовое продление времени всех ключей всех пользователей"""
+        try:
+            days_to_add = request.form.get('days_to_add', type=int)
+            
+            if days_to_add is None:
+                flash('Неверные параметры', 'danger')
+                return redirect(url_for('users_page'))
+            
+            if abs(days_to_add) > 365:  # Ограничиваем массовые операции годом
+                flash('Для массовых операций максимум 365 дней', 'danger')
+                return redirect(url_for('users_page'))
+            
+            # Получаем имя админа из сессии
+            admin_user = get_all_settings().get('panel_login', 'admin')
+            
+            import asyncio
+            result = asyncio.run(extend_all_users_keys_time(days_to_add, admin_user))
+            
+            if result['success']:
+                flash(result['message'], 'success')
+                
+                # Показываем детали если не слишком много
+                if len(result['details']) <= 10:
+                    details_msg = '<br>'.join(result['details'])
+                    flash(f'Детали:<br>{details_msg}', 'info')
+                else:
+                    flash(f'Обработано {len(result["details"])} пользователей. Подробности в логах.', 'info')
+            else:
+                flash(result['message'], 'danger')
+                if result['details']:
+                    error_details = '<br>'.join(result['details'][:5])
+                    flash(f'Первые ошибки:<br>{error_details}', 'warning')
+            
+            return redirect(url_for('users_page'))
+            
+        except Exception as e:
+            logger.error(f"Error extending all users keys time: {e}", exc_info=True)
+            flash(f'Ошибка при массовом обновлении: {str(e)}', 'danger')
+            return redirect(url_for('users_page'))
+
+    @flask_app.route('/get-user-keys-info/<int:user_id>')
+    @login_required
+    def get_user_keys_info(user_id):
+        """Получение информации о ключах пользователя для модального окна"""
+        try:
+            from shop_bot.data_manager.database import get_user_keys_with_remaining_time
+            
+            keys = get_user_keys_with_remaining_time(user_id)
+            return {'success': True, 'keys': keys}
+            
+        except Exception as e:
+            logger.error(f"Error getting user keys info: {e}", exc_info=True)
+            return {'success': False, 'message': f'Ошибка: {str(e)}'}, 500
 
     return flask_app
