@@ -1,7 +1,4 @@
-{% extends "base.html" %} {% block title %}Главная страница{% endblock %} {%
-block content %}
-
-<h1>Главная страница</h1>
+{% extends "base.html" %} {% block title %}Главная страница{% endblock %}
 
 {% block stats %}
 	<!-- Основная статистика -->
@@ -81,7 +78,8 @@ block content %}
 	</div>
 {% endblock %}
 
-<!-- Секция stats-section удалена, так как статистика уже отображена в блоке stats выше -->
+{% block content %}
+<h1>Аналитика и транзакции</h1>
 
 <div class="dashboard-container">
 	<div class="dashboard-column-left">

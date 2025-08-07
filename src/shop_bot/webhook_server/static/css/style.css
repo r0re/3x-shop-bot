@@ -280,6 +280,7 @@ body {
 }
 
 /* M3 Layout System */
+/* Адаптивный контейнер приложения */
 .app-container {
 	display: grid;
 	grid-template-areas:
@@ -295,6 +296,19 @@ body {
 	transition: all var(--md-motion-duration-medium2) var(--md-motion-easing-standard);
 }
 
+/* Адаптивный контейнер для мобильных устройств */
+@media (max-width: 768px) {
+	.app-container {
+		grid-template-areas:
+			"header"
+			"stats"
+			"main";
+		grid-template-columns: 1fr;
+		padding: 16px;
+		gap: 16px;
+	}
+}
+
 .app-header {
 	grid-area: header;
 	display: flex;
@@ -306,12 +320,48 @@ body {
 	box-shadow: var(--md-sys-elevation-level1);
 }
 
+/* Адаптивный заголовок для мобильных устройств */
+@media (max-width: 768px) {
+	.app-header {
+		flex-direction: column;
+		gap: 16px;
+		padding: 16px;
+	}
+	
+	.header-controls {
+		width: 100%;
+		justify-content: center;
+		flex-wrap: wrap;
+		gap: 12px;
+		padding-left: 0;
+		border-left: none;
+		border-top: 1px solid var(--md-sys-color-outline-variant);
+		padding-top: 16px;
+		margin-top: 8px;
+	}
+}
+
 .stats-section {
 	grid-area: stats;
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 	gap: 16px;
 	padding: 0 24px;
+}
+
+/* Адаптивные карточки статистики для мобильных устройств */
+@media (max-width: 768px) {
+	.stats-section {
+		grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+		gap: 12px;
+		padding: 0;
+	}
+}
+
+@media (max-width: 480px) {
+	.stats-section {
+		grid-template-columns: 1fr 1fr;
+	}
 }
 
 /* Sidebar removed */
@@ -324,6 +374,22 @@ body {
 	box-shadow: var(--md-sys-elevation-level1);
 	width: 100%;
 	max-width: 100%;
+}
+
+/* Адаптивный основной контент для мобильных устройств */
+@media (max-width: 768px) {
+	.main-content {
+		padding: 20px;
+	}
+	
+	.main-content h1 {
+		font-size: 24px;
+		margin-bottom: 20px;
+	}
+	
+	.main-content h2 {
+		font-size: 20px;
+	}
 }
 
 /* Legacy container support */
@@ -644,6 +710,24 @@ h4 {
 	letter-spacing: 0.5px;
 }
 
+/* Touch-friendly кнопки для мобильных устройств */
+@media (max-width: 768px) {
+	.button {
+		padding: 12px 20px;
+		min-height: 44px; /* Увеличиваем для удобства касания */
+	}
+	
+	.button-small {
+		padding: 8px 16px;
+		min-height: 36px;
+	}
+	
+	/* Увеличиваем расстояние между кнопками для удобства касания */
+	.actions-cell form {
+		margin-bottom: 8px;
+	}
+}
+
 .button-large {
 	padding: 14px 32px;
 	font-size: 16px;
@@ -768,6 +852,8 @@ body.login-page {
 .navigation {
 	display: flex;
 	gap: 12px;
+	flex-wrap: wrap;
+	justify-content: center;
 }
 
 .navigation .nav-link {
@@ -786,6 +872,19 @@ body.login-page {
 	align-items: center;
 	gap: 8px;
 	background-color: transparent;
+}
+
+/* Адаптивная навигация для мобильных устройств */
+@media (max-width: 768px) {
+	.navigation {
+		width: 100%;
+		justify-content: center;
+	}
+	
+	.navigation .nav-link {
+		padding: 10px 16px;
+		font-size: 13px;
+	}
 }
 
 .navigation .nav-link:hover {
@@ -888,6 +987,35 @@ body.login-page {
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
+}
+
+/* Адаптивные карточки статистики для мобильных устройств */
+@media (max-width: 768px) {
+	.stat-card {
+		padding: 16px;
+		border-radius: 20px;
+		gap: 8px;
+	}
+	
+	.stat-card h3 {
+		font-size: 12px;
+	}
+	
+	.stat-card .stat-number {
+		font-size: 36px;
+		line-height: 44px;
+	}
+}
+
+@media (max-width: 480px) {
+	.stat-card .stat-number {
+		font-size: 28px;
+		line-height: 36px;
+	}
+	
+	.stat-card .stat-trend {
+		font-size: 12px;
+	}
 }
 
 .stat-card:hover {
@@ -1198,6 +1326,19 @@ body.login-page {
 	min-width: 350px;
 }
 
+/* Адаптивный dashboard-container для мобильных устройств */
+@media (max-width: 768px) {
+	.dashboard-container {
+		gap: 20px;
+	}
+	
+	.dashboard-column-left,
+	.dashboard-column-right {
+		flex: 1 1 100%;
+		min-width: 100%;
+	}
+}
+
 .chart-container {
 	background-color: #f8f9fa;
 	border: 1px solid var(--border-color);
@@ -1303,6 +1444,34 @@ body.login-page {
 	border-radius: 12px;
 	overflow: hidden;
 	box-shadow: var(--md-sys-elevation-level1);
+}
+
+/* Адаптивные таблицы для мобильных устройств */
+@media (max-width: 768px) {
+	.users-table,
+	.transactions-table {
+		display: block;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+	
+	.users-table th,
+	.users-table td,
+	.transactions-table th,
+	.transactions-table td {
+		padding: 12px;
+		font-size: 13px;
+	}
+}
+
+@media (max-width: 480px) {
+	.users-table th,
+	.users-table td,
+	.transactions-table th,
+	.transactions-table td {
+		padding: 8px;
+		font-size: 12px;
+	}
 }
 
 .users-table th,
