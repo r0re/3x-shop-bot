@@ -120,6 +120,15 @@ def create_webhook_app(bot_controller_instance):
             memory_total = 0
             memory_used = 0
             
+            # Для процессора
+            cpu_usage = 0
+            cpu_cores = 0
+            
+            # Для сети
+            net_rx_mb = 0
+            net_tx_mb = 0
+            
+            # Получаем информацию о памяти
             try:
                 if os.path.exists('/proc/meminfo'):
                     with open('/proc/meminfo', 'r') as f:
@@ -142,13 +151,65 @@ def create_webhook_app(bot_controller_instance):
             except Exception as mem_error:
                 logger.error(f"Error getting memory info: {mem_error}")
             
+            # Получаем информацию о процессоре
+            try:
+                if os.path.exists('/proc/stat'):
+                    # Получаем количество ядер
+                    if os.path.exists('/proc/cpuinfo'):
+                        with open('/proc/cpuinfo', 'r') as f:
+                            cpuinfo = f.read()
+                        cpu_cores = cpuinfo.count('processor')
+                    
+                    # Получаем загрузку CPU (упрощенный метод)
+                    with open('/proc/stat', 'r') as f:
+                        cpu_line = f.readline().strip()
+                    
+                    if cpu_line.startswith('cpu '):
+                        values = cpu_line.split()[1:]
+                        values = [int(i) for i in values]
+                        
+                        # user, nice, system, idle, iowait, irq, softirq, steal
+                        total = sum(values)
+                        idle = values[3]
+                        
+                        cpu_usage = 100 - (idle * 100 / total) if total > 0 else 0
+            except Exception as cpu_error:
+                logger.error(f"Error getting CPU info: {cpu_error}")
+            
+            # Получаем информацию о сети
+            try:
+                if os.path.exists('/proc/net/dev'):
+                    with open('/proc/net/dev', 'r') as f:
+                        net_lines = f.readlines()
+                    
+                    rx_bytes = 0
+                    tx_bytes = 0
+                    
+                    for line in net_lines[2:]:  # Пропускаем заголовки
+                        parts = line.split(':')
+                        if len(parts) == 2:
+                            interface = parts[0].strip()
+                            if interface not in ['lo']:  # Исключаем loopback
+                                values = parts[1].split()
+                                rx_bytes += int(values[0])
+                                tx_bytes += int(values[8])
+                    
+                    net_rx_mb = rx_bytes / (1024 * 1024)  # В МБ
+                    net_tx_mb = tx_bytes / (1024 * 1024)  # В МБ
+            except Exception as net_error:
+                logger.error(f"Error getting network info: {net_error}")
+            
             return {
                 "memory_used_percent": round(memory_used_percent, 1),
                 "memory_total": round(memory_total, 1),
                 "memory_used": round(memory_used, 1),
                 "disk_used_percent": round(disk_used_percent, 1),
                 "disk_total": round(disk_total, 1),
-                "disk_used": round(disk_used, 1)
+                "disk_used": round(disk_used, 1),
+                "cpu_usage": round(cpu_usage, 1),
+                "cpu_cores": cpu_cores,
+                "net_rx_mb": round(net_rx_mb, 1),
+                "net_tx_mb": round(net_tx_mb, 1)
             }
         except Exception as e:
             logger.error(f"Error getting system resources: {e}")
@@ -158,7 +219,11 @@ def create_webhook_app(bot_controller_instance):
                 "memory_used": 0,
                 "disk_used_percent": 0,
                 "disk_total": 0,
-                "disk_used": 0
+                "disk_used": 0,
+                "cpu_usage": 0,
+                "cpu_cores": 0,
+                "net_rx_mb": 0,
+                "net_tx_mb": 0
             }
 
     def get_common_template_data():
