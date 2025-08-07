@@ -5,7 +5,6 @@ import json
 import hashlib
 import base64
 import shutil
-import psutil
 from hmac import compare_digest
 from datetime import datetime
 from functools import wraps
@@ -110,17 +109,38 @@ def create_webhook_app(bot_controller_instance):
     def get_system_resources():
         """Получает информацию о системных ресурсах"""
         try:
-            # Память
-            memory = psutil.virtual_memory()
-            memory_used_percent = memory.percent
-            memory_total = memory.total / (1024 * 1024 * 1024)  # В ГБ
-            memory_used = memory.used / (1024 * 1024 * 1024)    # В ГБ
-            
-            # Диск
+            # Диск - используем встроенный модуль shutil
             disk = shutil.disk_usage('/')
             disk_total = disk.total / (1024 * 1024 * 1024)      # В ГБ
             disk_used = disk.used / (1024 * 1024 * 1024)        # В ГБ
             disk_used_percent = (disk.used / disk.total) * 100
+            
+            # Для памяти используем информацию из /proc/meminfo (только на Linux)
+            memory_used_percent = 0
+            memory_total = 0
+            memory_used = 0
+            
+            try:
+                if os.path.exists('/proc/meminfo'):
+                    with open('/proc/meminfo', 'r') as f:
+                        meminfo = f.readlines()
+                    
+                    mem_total = 0
+                    mem_free = 0
+                    mem_available = 0
+                    
+                    for line in meminfo:
+                        if 'MemTotal' in line:
+                            mem_total = int(line.split()[1])
+                        elif 'MemAvailable' in line:
+                            mem_available = int(line.split()[1])
+                    
+                    if mem_total > 0:
+                        memory_total = mem_total / (1024 * 1024)  # В ГБ
+                        memory_used = (mem_total - mem_available) / (1024 * 1024)  # В ГБ
+                        memory_used_percent = (memory_used / memory_total) * 100 if memory_total > 0 else 0
+            except Exception as mem_error:
+                logger.error(f"Error getting memory info: {mem_error}")
             
             return {
                 "memory_used_percent": round(memory_used_percent, 1),
