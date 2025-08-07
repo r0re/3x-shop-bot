@@ -14,84 +14,93 @@
 		<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 	</head>
 	<body>
-		<div class="container">
-			<header class="main-header">
+		<div class="app-container">
+			<!-- Header -->
+			<header class="app-header">
 				<nav class="navigation">
-					<a
-						href="{{ url_for('dashboard_page') }}"
-						class="nav-link {% if request.endpoint == 'dashboard_page' %}active{% endif %}"
-						>Главная</a
-					>
-					<a
-						href="{{ url_for('users_page') }}"
-						class="nav-link {% if request.endpoint == 'users_page' %}active{% endif %}"
-						>Пользователи</a
-					>
-					<a
-						href="{{ url_for('settings_page') }}"
-						class="nav-link {% if request.endpoint == 'settings_page' %}active{% endif %}"
-						>Настройки</a
-					>
-					<a
-						href="https://github.com/r0re/3xShop-bot"
-						class="nav-link"
-						target="_blank"
-						>Поддержать разработку</a
-					>
+					<a href="{{ url_for('dashboard_page') }}"
+						class="nav-link {% if request.endpoint == 'dashboard_page' %}active{% endif %}">
+						📊 Главная
+					</a>
+					<a href="{{ url_for('users_page') }}"
+						class="nav-link {% if request.endpoint == 'users_page' %}active{% endif %}">
+						👥 Пользователи
+					</a>
+					<a href="{{ url_for('settings_page') }}"
+						class="nav-link {% if request.endpoint == 'settings_page' %}active{% endif %}">
+						⚙️ Настройки
+					</a>
 				</nav>
 
 				<div class="header-controls">
+					<!-- Bot Status -->
+					<div class="bot-control">
+						{% if bot_status.is_running %}
+						<p class="status-running">🟢 <strong>Бот запущен</strong></p>
+						<form action="{{ url_for('stop_bot_route') }}" method="post">
+							<button type="submit" class="button button-stop button-small">
+								⏹️ Остановить
+							</button>
+						</form>
+						{% else %}
+						<p class="status-stopped">⭕ <strong>Бот остановлен</strong></p>
+						{% if all_settings_ok %}
+						<form action="{{ url_for('start_bot_route') }}" method="post">
+							<button type="submit" class="button button-start button-small">
+								▶️ Запустить
+							</button>
+						</form>
+						{% else %}
+						<button class="button button-disabled button-small" disabled>
+							▶️ Запустить
+						</button>
+						{% endif %} {% endif %}
+					</div>
+
 					<!-- Theme Switcher -->
 					<div class="theme-switcher">
 						<button id="themeToggle" class="button button-text button-small" title="Переключить тему">
 							<span id="themeIcon">🌙</span>
 						</button>
 					</div>
-					<div class="bot-control">
-						{% if bot_status.is_running %}
-						<p class="status-running">Статус: <strong>Запущен</strong></p>
-						<form action="{{ url_for('stop_bot_route') }}" method="post">
-							<button type="submit" class="button button-stop button-small">
-								Остановить
-							</button>
-						</form>
-						{% else %}
-						<p class="status-stopped">Статус: <strong>Остановлен</strong></p>
-						{% if all_settings_ok %}
-						<form action="{{ url_for('start_bot_route') }}" method="post">
-							<button type="submit" class="button button-start button-small">
-								Запустить
-							</button>
-						</form>
-						{% else %}
-						<button class="button button-disabled button-small" disabled>
-							Запустить
-						</button>
-						{% endif %} {% endif %}
-					</div>
 
+					<!-- User Controls -->
 					<div class="user-session-controls">
-						<span>Вы вошли в систему.</span>
-						<form
-							action="{{ url_for('logout_page') }}"
-							method="post"
-							style="display: inline"
-						>
-							<button type="submit" class="button button-logout">Выйти</button>
+						<a href="https://github.com/r0re/3xShop-bot" class="button button-text button-small" target="_blank">
+							⭐ GitHub
+						</a>
+						<form action="{{ url_for('logout_page') }}" method="post" style="display: inline">
+							<button type="submit" class="button button-logout">
+								🚪 Выйти
+							</button>
 						</form>
 					</div>
 				</div>
 			</header>
 
-			{% with messages = get_flashed_messages(with_categories=true) %} {% if
-			messages %} {% for category, message in messages %}
-			<div class="flash flash-{{ category }}">{{ message }}</div>
-			{% endfor %} {% endif %} {% endwith %}
+			<!-- Stats Section -->
+			<section class="stats-section">
+				{% block stats %}{% endblock %}
+			</section>
 
-			<main>{% block content %}{% endblock %}</main>
+			<!-- Sidebar -->
+			<aside class="sidebar">
+				{% block sidebar %}{% endblock %}
+			</aside>
+
+			<!-- Main Content -->
+			<main class="main-content">
+				{% with messages = get_flashed_messages(with_categories=true) %}
+				{% if messages %}
+				{% for category, message in messages %}
+				<div class="flash flash-{{ category }}">{{ message }}</div>
+				{% endfor %}
+				{% endif %}
+				{% endwith %}
+
+				{% block content %}{% endblock %}
+			</main>
 		</div>
-
-		<footer class="main-footer"></footer>
 		
 		<!-- Theme Switcher Script -->
 		<script>
