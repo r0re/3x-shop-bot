@@ -46,6 +46,61 @@ fi
 echo -e "${GREEN}✔ Все системные зависимости установлены.${NC}"
 
 REPO_URL="https://github.com/r0re/3xShop-bot.git"
+
+# Функция для настройки пользовательских SSL сертификатов
+setup_custom_ssl() {
+    echo -e "${YELLOW}Настройка пользовательских SSL сертификатов${NC}"
+    echo -e "\nВам нужно предоставить пути к следующим файлам:"
+    echo -e "  1. Файл сертификата (.crt или .pem)"
+    echo -e "  2. Файл приватного ключа (.key)"
+    echo -e "  3. Файл цепочки сертификатов (опционально)"
+    
+    read -p "Введите полный путь к файлу сертификата: " CERT_FILE
+    read -p "Введите полный путь к файлу приватного ключа: " KEY_FILE
+    read -p "Введите полный путь к файлу цепочки сертификатов (оставьте пустым, если нет): " CHAIN_FILE
+    
+    # Проверяем существование файлов
+    if [ ! -f "$CERT_FILE" ]; then
+        echo -e "${RED}❌ Файл сертификата не найден: $CERT_FILE${NC}"
+        USE_SSL=false
+        return
+    fi
+    
+    if [ ! -f "$KEY_FILE" ]; then
+        echo -e "${RED}❌ Файл приватного ключа не найден: $KEY_FILE${NC}"
+        USE_SSL=false
+        return
+    fi
+    
+    # Создаем директорию для пользовательских сертификатов
+    CUSTOM_SSL_DIR="/etc/ssl/custom/$DOMAIN"
+    sudo mkdir -p "$CUSTOM_SSL_DIR"
+    
+    # Копируем файлы
+    sudo cp "$CERT_FILE" "$CUSTOM_SSL_DIR/cert.pem"
+    sudo cp "$KEY_FILE" "$CUSTOM_SSL_DIR/privkey.pem"
+    
+    if [ -n "$CHAIN_FILE" ] && [ -f "$CHAIN_FILE" ]; then
+        sudo cp "$CHAIN_FILE" "$CUSTOM_SSL_DIR/chain.pem"
+        # Создаем fullchain (cert + chain)
+        sudo bash -c "cat '$CUSTOM_SSL_DIR/cert.pem' '$CUSTOM_SSL_DIR/chain.pem' > '$CUSTOM_SSL_DIR/fullchain.pem'"
+    else
+        # Если нет цепочки, используем только сертификат
+        sudo cp "$CUSTOM_SSL_DIR/cert.pem" "$CUSTOM_SSL_DIR/fullchain.pem"
+    fi
+    
+    # Устанавливаем правильные права доступа
+    sudo chmod 644 "$CUSTOM_SSL_DIR/cert.pem" "$CUSTOM_SSL_DIR/fullchain.pem"
+    sudo chmod 600 "$CUSTOM_SSL_DIR/privkey.pem"
+    sudo chown root:root "$CUSTOM_SSL_DIR"/*
+    
+    # Устанавливаем переменные для использования в конфигурации Nginx
+    SSL_CERT_PATH="$CUSTOM_SSL_DIR/fullchain.pem"
+    SSL_KEY_PATH="$CUSTOM_SSL_DIR/privkey.pem"
+    USE_SSL=true
+    
+    echo -e "${GREEN}✔ Пользовательские SSL сертификаты настроены.${NC}"
+}
 PROJECT_DIR="3xShop-bot"
 
 echo -e "\n${CYAN}Шаг 2: Клонирование репозитория...${NC}"
@@ -107,15 +162,101 @@ if command -v ufw &> /dev/null && sudo ufw status | grep -q 'Status: active'; th
     sudo ufw allow 8443/tcp
 fi
 
+echo -e "\n${CYAN}Настройка SSL сертификатов${NC}"
+
 if [ -d "/etc/letsencrypt/live/$DOMAIN" ]; then
-    echo -e "${GREEN}✔ SSL-сертификаты для домена $DOMAIN уже существуют. Пропускаем получение.${NC}"
+    echo -e "${GREEN}✔ SSL-сертификаты для домена $DOMAIN уже существуют.${NC}"
+    echo -e "\nВыберите действие:"
+    echo -e "  ${YELLOW}1)${NC} Использовать существующие сертификаты"
+    echo -e "  ${YELLOW}2)${NC} Получить новые сертификаты (перезапись существующих)"
+    echo -e "  ${YELLOW}3)${NC} Использовать свои сертификаты"
+    echo -e "  ${YELLOW}4)${NC} Запуск без SSL (HTTP только)"
+    read -p "Введите номер (1-4, по умолчанию 1): " SSL_CHOICE
+    SSL_CHOICE=${SSL_CHOICE:-1}
 else
-    echo -e "${YELLOW}Получаем SSL-сертификаты для $DOMAIN...${NC}"
-    sudo systemctl stop nginx
-    sudo certbot certonly --standalone -d $DOMAIN --email $EMAIL --agree-tos --non-interactive
-    sudo systemctl start nginx
-    echo -e "${GREEN}✔ SSL-сертификаты успешно получены.${NC}"
+    echo -e "${YELLOW}SSL-сертификаты для домена $DOMAIN не найдены.${NC}"
+    echo -e "\nВыберите действие:"
+    echo -e "  ${YELLOW}1)${NC} Получить новые сертификаты от Let's Encrypt"
+    echo -e "  ${YELLOW}2)${NC} Использовать свои сертификаты"
+    echo -e "  ${YELLOW}3)${NC} Запуск без SSL (HTTP только)"
+    read -p "Введите номер (1-3, по умолчанию 1): " SSL_CHOICE
+    SSL_CHOICE=${SSL_CHOICE:-1}
 fi
+
+case $SSL_CHOICE in
+    1)
+        if [ -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+            echo -e "${GREEN}✔ Используем существующие сертификаты.${NC}"
+            USE_SSL=true
+        else
+            echo -e "${YELLOW}Получаем SSL-сертификаты от Let's Encrypt...${NC}"
+            sudo systemctl stop nginx
+            if sudo certbot certonly --standalone -d $DOMAIN --email $EMAIL --agree-tos --non-interactive; then
+                echo -e "${GREEN}✔ SSL-сертификаты успешно получены.${NC}"
+                USE_SSL=true
+            else
+                echo -e "${RED}⚠ Не удалось получить SSL-сертификат.${NC}"
+                echo -e "${YELLOW}Возможные причины:${NC}"
+                echo -e "  - Превышен лимит Let's Encrypt (5 сертификатов в неделю)"
+                echo -e "  - Домен недоступен или неправильно настроен"
+                echo -e "  - Проблемы с DNS"
+                echo -e "\n${YELLOW}Продолжить без SSL?${NC}"
+                read -p "y/N: " CONTINUE_WITHOUT_SSL
+                if [[ $CONTINUE_WITHOUT_SSL =~ ^[Yy]$ ]]; then
+                    USE_SSL=false
+                else
+                    echo -e "${RED}Установка прервана.${NC}"
+                    exit 1
+                fi
+            fi
+            sudo systemctl start nginx
+        fi
+        ;;
+    2)
+        if [ -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+            echo -e "${YELLOW}Получаем новые SSL-сертификаты (перезапись)...${NC}"
+            sudo systemctl stop nginx
+            if sudo certbot certonly --standalone -d $DOMAIN --email $EMAIL --agree-tos --non-interactive --force-renewal; then
+                echo -e "${GREEN}✔ SSL-сертификаты успешно обновлены.${NC}"
+                USE_SSL=true
+            else
+                echo -e "${RED}⚠ Не удалось получить новые SSL-сертификаты.${NC}"
+                echo -e "${YELLOW}Продолжить с существующими сертификатами? (y/N): ${NC}"
+                read CONTINUE_EXISTING
+                if [[ $CONTINUE_EXISTING =~ ^[Yy]$ ]]; then
+                    USE_SSL=true
+                else
+                    USE_SSL=false
+                fi
+            fi
+            sudo systemctl start nginx
+        else
+            # Для случая, когда сертификатов нет, но выбрали "использовать свои"
+            echo -e "${YELLOW}Настройка пользовательских сертификатов...${NC}"
+            setup_custom_ssl
+        fi
+        ;;
+    3)
+        if [ -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+            setup_custom_ssl
+        else
+            echo -e "${YELLOW}Запуск без SSL (HTTP только)...${NC}"
+            USE_SSL=false
+        fi
+        ;;
+    4)
+        echo -e "${YELLOW}Запуск без SSL (HTTP только)...${NC}"
+        USE_SSL=false
+        ;;
+    *)
+        echo -e "${RED}Неверный выбор. Используем настройки по умолчанию.${NC}"
+        if [ -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+            USE_SSL=true
+        else
+            USE_SSL=false
+        fi
+        ;;
+esac
 
 echo -e "\n${CYAN}Шаг 4: Настройка Nginx...${NC}"
 
@@ -126,15 +267,25 @@ NGINX_CONF_FILE="/etc/nginx/sites-available/$PROJECT_DIR.conf"
 NGINX_ENABLED_FILE="/etc/nginx/sites-enabled/$PROJECT_DIR.conf"
 
 echo -e "Создаем конфигурацию Nginx..."
-sudo bash -c "cat > $NGINX_CONF_FILE" <<EOF
+
+if [ "$USE_SSL" = true ]; then
+    echo -e "${GREEN}Создаем конфигурацию с SSL...${NC}"
+    
+    # Устанавливаем пути к сертификатам (по умолчанию Let's Encrypt)
+    if [ -z "$SSL_CERT_PATH" ]; then
+        SSL_CERT_PATH="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+        SSL_KEY_PATH="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+    fi
+    
+    sudo bash -c "cat > $NGINX_CONF_FILE" <<EOF
 server {
     listen ${YOOKASSA_PORT} ssl http2;
     listen [::]:${YOOKASSA_PORT} ssl http2;
 
     server_name ${DOMAIN};
 
-    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_certificate ${SSL_CERT_PATH};
+    ssl_certificate_key ${SSL_KEY_PATH};
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';
@@ -147,7 +298,35 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
+
+# Редирект с HTTP на HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+    return 301 https://\$server_name\$request_uri;
+}
 EOF
+else
+    echo -e "${YELLOW}Создаем конфигурацию без SSL (HTTP только)...${NC}"
+    YOOKASSA_PORT=80
+    sudo bash -c "cat > $NGINX_CONF_FILE" <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name ${DOMAIN};
+
+    location / {
+        proxy_pass http://127.0.0.1:1488;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+fi
 
 if [ ! -f "$NGINX_ENABLED_FILE" ]; then
     sudo ln -s $NGINX_CONF_FILE $NGINX_ENABLED_FILE
@@ -174,7 +353,17 @@ echo -e "\n\n${GREEN}=====================================================${NC}"
 echo -e "${GREEN}      🎉 Установка и запуск успешно завершены! 🎉      ${NC}"
 echo -e "${GREEN}=====================================================${NC}"
 echo -e "\nВеб-панель доступна по адресу:"
-echo -e "  - ${YELLOW}https://${DOMAIN}:${YOOKASSA_PORT}/login${NC}"
+if [ "$USE_SSL" = true ]; then
+    echo -e "  - ${YELLOW}https://${DOMAIN}:${YOOKASSA_PORT}/login${NC}"
+    if [[ "$SSL_CERT_PATH" == *"letsencrypt"* ]]; then
+        echo -e "  ${GREEN}🔒 Используются сертификаты Let's Encrypt${NC}"
+    elif [[ "$SSL_CERT_PATH" == *"custom"* ]]; then
+        echo -e "  ${GREEN}🔒 Используются пользовательские SSL сертификаты${NC}"
+    fi
+else
+    echo -e "  - ${YELLOW}http://${DOMAIN}:${YOOKASSA_PORT}/login${NC}"
+    echo -e "  ${RED}⚠ Внимание: Используется HTTP без SSL шифрования!${NC}"
+fi
 
 # Читаем сгенерированные учетные данные
 if [ -f "${PROJECT_DIR}/admin_credentials.txt" ]; then
