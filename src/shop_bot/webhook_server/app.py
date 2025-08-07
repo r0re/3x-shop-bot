@@ -4,6 +4,8 @@ import asyncio
 import json
 import hashlib
 import base64
+import shutil
+import psutil
 from hmac import compare_digest
 from datetime import datetime
 from functools import wraps
@@ -105,6 +107,40 @@ def create_webhook_app(bot_controller_instance):
         flash('Вы успешно вышли.', 'success')
         return redirect(url_for('login_page'))
 
+    def get_system_resources():
+        """Получает информацию о системных ресурсах"""
+        try:
+            # Память
+            memory = psutil.virtual_memory()
+            memory_used_percent = memory.percent
+            memory_total = memory.total / (1024 * 1024 * 1024)  # В ГБ
+            memory_used = memory.used / (1024 * 1024 * 1024)    # В ГБ
+            
+            # Диск
+            disk = shutil.disk_usage('/')
+            disk_total = disk.total / (1024 * 1024 * 1024)      # В ГБ
+            disk_used = disk.used / (1024 * 1024 * 1024)        # В ГБ
+            disk_used_percent = (disk.used / disk.total) * 100
+            
+            return {
+                "memory_used_percent": round(memory_used_percent, 1),
+                "memory_total": round(memory_total, 1),
+                "memory_used": round(memory_used, 1),
+                "disk_used_percent": round(disk_used_percent, 1),
+                "disk_total": round(disk_total, 1),
+                "disk_used": round(disk_used, 1)
+            }
+        except Exception as e:
+            logger.error(f"Error getting system resources: {e}")
+            return {
+                "memory_used_percent": 0,
+                "memory_total": 0,
+                "memory_used": 0,
+                "disk_used_percent": 0,
+                "disk_total": 0,
+                "disk_used": 0
+            }
+
     def get_common_template_data():
         bot_status = _bot_controller.get_status()
         settings = get_all_settings()
@@ -127,6 +163,9 @@ def create_webhook_app(bot_controller_instance):
             "host_count": len(get_all_hosts())
         }
         
+        # Получаем информацию о системных ресурсах
+        system_resources = get_system_resources()
+        
         page = request.args.get('page', 1, type=int)
         per_page = 8
         
@@ -139,6 +178,7 @@ def create_webhook_app(bot_controller_instance):
         return render_template(
             'dashboard.html',
             stats=stats,
+            system_resources=system_resources,
             chart_data=chart_data,
             transactions=transactions,
             current_page=page,

@@ -3,27 +3,53 @@ block content %}
 
 <h1>Главная страница</h1>
 
-<section class="stats-section">
-	<div class="stats-grid">
-		<div class="stat-card">
-			<h3>Пользователей</h3>
-			<p class="stat-number">{{ stats.user_count }}</p>
+{% block stats %}
+	<div class="stat-card">
+		<h3>Пользователей</h3>
+		<p class="stat-number">{{ stats.user_count }}</p>
+	</div>
+	<div class="stat-card">
+		<h3>Всего ключей</h3>
+		<p class="stat-number">{{ stats.total_keys }}</p>
+	</div>
+	<div class="stat-card">
+		<h3>Всего потрачено</h3>
+		<p class="stat-number">
+			{{ stats.total_spent | round(2) }} <small>RUB</small>
+		</p>
+	</div>
+	<div class="stat-card">
+		<h3>Активных хостов</h3>
+		<p class="stat-number">{{ stats.host_count }}</p>
+	</div>
+	<div class="stat-card">
+		<h3>Память</h3>
+		<p class="stat-number">
+			{{ system_resources.memory_used_percent }}<small>%</small>
+		</p>
+		<div class="stat-trend">
+			{{ system_resources.memory_used }} / {{ system_resources.memory_total }} GB
 		</div>
-		<div class="stat-card">
-			<h3>Всего ключей</h3>
-			<p class="stat-number">{{ stats.total_keys }}</p>
-		</div>
-		<div class="stat-card">
-			<h3>Всего потрачено</h3>
-			<p class="stat-number">
-				{{ stats.total_spent | round(2) }} <small>RUB</small>
-			</p>
-		</div>
-		<div class="stat-card">
-			<h3>Активных хостов</h3>
-			<p class="stat-number">{{ stats.host_count }}</p>
+		<div class="progress-bar">
+			<div class="progress-fill" style="width: {{ system_resources.memory_used_percent }}%"></div>
 		</div>
 	</div>
+	<div class="stat-card">
+		<h3>Диск</h3>
+		<p class="stat-number">
+			{{ system_resources.disk_used_percent }}<small>%</small>
+		</p>
+		<div class="stat-trend">
+			{{ system_resources.disk_used }} / {{ system_resources.disk_total }} GB
+		</div>
+		<div class="progress-bar">
+			<div class="progress-fill" style="width: {{ system_resources.disk_used_percent }}%"></div>
+		</div>
+	</div>
+{% endblock %}
+
+<section class="stats-section">
+	<!-- Статистика уже отображена в блоке stats -->
 </section>
 
 <div class="dashboard-container">
