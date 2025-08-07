@@ -1,5 +1,5 @@
 services:
-  bot:
+  shop-bot:
     build: .
     restart: unless-stopped
     ports:

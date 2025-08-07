@@ -45,8 +45,8 @@ if ! sudo systemctl is-active --quiet nginx; then
 fi
 echo -e "${GREEN}✔ Все системные зависимости установлены.${NC}"
 
-REPO_URL="https://github.com/evansvl/vless-shopbot.git"
-PROJECT_DIR="vless-shopbot"
+REPO_URL="https://github.com/r0re/3xShop-bot.git"
+PROJECT_DIR="3xShop-bot"
 
 echo -e "\n${CYAN}Шаг 2: Клонирование репозитория...${NC}"
 if [ -d "$PROJECT_DIR" ]; then
