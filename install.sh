@@ -128,40 +128,7 @@ fi
 
 echo -e "${GREEN}✔ Домен для работы: ${DOMAIN}${NC}"
 
-SERVER_IP=$(curl -s ifconfig.me || hostname -I | awk '{print $1}')
-DOMAIN_IP=$(dig +short $DOMAIN @8.8.8.8 | tail -n1)
-
-echo -e "${YELLOW}IP вашего сервера: $SERVER_IP${NC}"
-echo -e "${YELLOW}IP, на который указывает домен '$DOMAIN': $DOMAIN_IP${NC}"
-
-if [ -z "$DOMAIN_IP" ]; then
-    echo -e "${RED}ВНИМАНИЕ: Не удалось определить IP-адрес для домена $DOMAIN. Убедитесь, что DNS-запись существует и уже обновилась.${NC}"
-    read -p "Продолжить установку? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Установка прервана."
-        exit 1
-    fi
-fi
-
-if [ "$SERVER_IP" != "$DOMAIN_IP" ]; then
-    echo -e "${RED}ВНИМАНИЕ: DNS-запись для домена $DOMAIN не указывает на IP-адрес этого сервера!${NC}"
-    read -p "Продолжить установку? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Установка прервана."
-        exit 1
-    fi
-fi
-
-if command -v ufw &> /dev/null && sudo ufw status | grep -q 'Status: active'; then
-    echo -e "${YELLOW}Обнаружен активный файрвол (ufw). Открываем порты 80 и 443...${NC}"
-    sudo ufw allow 80/tcp
-    sudo ufw allow 443/tcp
-    sudo ufw allow 1488/tcp
-    sudo ufw allow 8443/tcp
-fi
-
+# Настройка SSL сертификатов
 echo -e "\n${CYAN}Настройка SSL сертификатов${NC}"
 
 if [ -d "/etc/letsencrypt/live/$DOMAIN" ]; then
@@ -257,6 +224,42 @@ case $SSL_CHOICE in
         fi
         ;;
 esac
+
+SERVER_IP=$(curl -s ifconfig.me || hostname -I | awk '{print $1}')
+DOMAIN_IP=$(dig +short $DOMAIN @8.8.8.8 | tail -n1)
+
+echo -e "${YELLOW}IP вашего сервера: $SERVER_IP${NC}"
+echo -e "${YELLOW}IP, на который указывает домен '$DOMAIN': $DOMAIN_IP${NC}"
+
+if [ -z "$DOMAIN_IP" ]; then
+    echo -e "${RED}ВНИМАНИЕ: Не удалось определить IP-адрес для домена $DOMAIN. Убедитесь, что DNS-запись существует и уже обновилась.${NC}"
+    read -p "Продолжить установку? (y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Установка прервана."
+        exit 1
+    fi
+fi
+
+if [ "$SERVER_IP" != "$DOMAIN_IP" ]; then
+    echo -e "${RED}ВНИМАНИЕ: DNS-запись для домена $DOMAIN не указывает на IP-адрес этого сервера!${NC}"
+    read -p "Продолжить установку? (y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Установка прервана."
+        exit 1
+    fi
+fi
+
+if command -v ufw &> /dev/null && sudo ufw status | grep -q 'Status: active'; then
+    echo -e "${YELLOW}Обнаружен активный файрвол (ufw). Открываем порты 80 и 443...${NC}"
+    sudo ufw allow 80/tcp
+    sudo ufw allow 443/tcp
+    sudo ufw allow 1488/tcp
+    sudo ufw allow 8443/tcp
+fi
+
+
 
 echo -e "\n${CYAN}Шаг 4: Настройка Nginx...${NC}"
 
